@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { correctAttendance, listAttendance } from '../lib/api'
-import { ApiError, type AttendanceRow } from '../lib/types'
+import { correctAttendance, listAttendance, listStudents, markAttendanceManual } from '../lib/api'
+import { ApiError, type AttendanceRow, type StudentListItem } from '../lib/types'
 import { formatTime, percent, todayISO } from '../lib/format'
 import AppIcon from '../components/AppIcon.vue'
 import StatusDot from '../components/StatusDot.vue'
@@ -13,6 +13,23 @@ const date = ref(todayISO())
 const filterNama = ref('')
 const busyId = ref<string | null>(null)
 
+// Manual attendance (teacher fallback when the camera cannot recognise).
+const students = ref<StudentListItem[]>([])
+const manualOpen = ref(false)
+const manualQuery = ref('')
+const manualId = ref('')
+const manualNote = ref('')
+const manualBusy = ref(false)
+const notice = ref('')
+
+const manualMatches = computed(() => {
+  const q = manualQuery.value.trim().toLowerCase()
+  if (!q) return students.value.slice(0, 20)
+  return students.value
+    .filter((s) => s.nama.toLowerCase().includes(q) || s.nis.toLowerCase().includes(q))
+    .slice(0, 20)
+})
+
 const filtered = computed(() => {
   const q = filterNama.value.trim().toLowerCase()
   if (!q) return rows.value
@@ -23,7 +40,10 @@ const hasRows = computed(() => rows.value.length > 0)
 const filteredEmpty = computed(() => hasRows.value && filtered.value.length === 0)
 const filtersActive = computed(() => filterNama.value.trim() !== '')
 
-onMounted(load)
+onMounted(() => {
+  void load()
+  void loadStudents()
+})
 
 async function load(): Promise<void> {
   loading.value = true
@@ -34,6 +54,36 @@ async function load(): Promise<void> {
     error.value = e instanceof ApiError ? e.message : 'Gagal memuat absensi.'
   } finally {
     loading.value = false
+  }
+}
+
+/** Load the roster once, for the manual-mark picker. */
+async function loadStudents(): Promise<void> {
+  try {
+    students.value = await listStudents(500, 0)
+  } catch {
+    /* the picker is optional; the list view still works without it */
+  }
+}
+
+async function submitManual(): Promise<void> {
+  if (!manualId.value) return
+  manualBusy.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    await markAttendanceManual(manualId.value, manualNote.value)
+    const s = students.value.find((x) => x.id === manualId.value)
+    notice.value = `${s?.nama ?? 'Siswa'} ditandai hadir (manual).`
+    manualId.value = ''
+    manualQuery.value = ''
+    manualNote.value = ''
+    manualOpen.value = false
+    await load()
+  } catch (e) {
+    error.value = e instanceof ApiError ? e.message : 'Gagal menandai hadir manual.'
+  } finally {
+    manualBusy.value = false
   }
 }
 
@@ -96,6 +146,54 @@ function exportCsv(): void {
     <p v-if="error" class="alert alert-error" role="alert">
       <AppIcon name="alert" :size="16" /><span>{{ error }}</span>
     </p>
+    <p v-if="notice" class="alert alert-success" role="status">
+      <AppIcon name="check-circle" :size="16" /><span>{{ notice }}</span>
+    </p>
+
+    <!-- Teacher fallback: when the kiosk camera cannot recognise a student
+         (broken camera, glasses, lighting), staff record presence by hand. -->
+    <div class="card card-pad manual-card">
+      <div class="manual-head">
+        <div>
+          <strong>Absen manual</strong>
+          <p class="muted">Untuk kasus kamera tidak mengenali siswa. Tercatat sebagai <em>manual</em> di audit.</p>
+        </div>
+        <button class="btn btn-secondary btn-sm" type="button" @click="manualOpen = !manualOpen">
+          <AppIcon :name="manualOpen ? 'x' : 'user-check'" :size="15" />
+          <span>{{ manualOpen ? 'Batal' : 'Tandai hadir' }}</span>
+        </button>
+      </div>
+
+      <div v-if="manualOpen" class="manual-form">
+        <div class="field">
+          <label class="label" for="manual-search">Cari siswa</label>
+          <input
+            id="manual-search"
+            v-model="manualQuery"
+            class="input"
+            type="search"
+            placeholder="Nama atau NIS…"
+          />
+        </div>
+        <div class="field">
+          <label class="label" for="manual-pick">Siswa</label>
+          <select id="manual-pick" v-model="manualId" class="select">
+            <option value="">— pilih siswa —</option>
+            <option v-for="s in manualMatches" :key="s.id" :value="s.id">
+              {{ s.nama }} · {{ s.nis }}
+            </option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="label" for="manual-note">Catatan (opsional)</label>
+          <input id="manual-note" v-model="manualNote" class="input" placeholder="mis. wajah belum terdaftar" />
+        </div>
+        <button class="btn btn-primary" type="button" :disabled="!manualId || manualBusy" @click="submitManual">
+          <AppIcon name="check" :size="16" />
+          <span>{{ manualBusy ? 'Menyimpan…' : 'Tandai hadir' }}</span>
+        </button>
+      </div>
+    </div>
 
     <div class="panel">
       <div class="panel-toolbar">
@@ -201,6 +299,50 @@ function exportCsv(): void {
 .muted {
   color: var(--text-secondary);
   font-size: var(--text-sm);
+}
+
+/* Manual attendance fallback panel. */
+.manual-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.manual-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.manual-head p {
+  margin-top: var(--space-xs);
+  max-width: 44ch;
+}
+
+.manual-head em {
+  font-style: normal;
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+}
+
+.manual-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: var(--space-md);
+  align-items: end;
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border-subtle);
+}
+
+@media (max-width: 800px) {
+  .manual-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .manual-form {
+    grid-template-columns: 1fr;
+  }
 }
 
 .toolbar {

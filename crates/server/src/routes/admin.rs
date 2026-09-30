@@ -487,6 +487,79 @@ pub async fn correct_attendance(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// Manual attendance by a teacher (plan Section 6 "fallback manusia"): when the
+/// camera cannot recognise a student (broken camera, glasses, lighting, or the
+/// model is simply unsure), a staff member records presence by hand. This is the
+/// human fallback that makes the fail-closed rule safe to enforce.
+#[derive(Deserialize)]
+pub struct ManualAttendanceBody {
+    pub student_id: Uuid,
+    pub note: Option<String>,
+}
+
+pub async fn mark_attendance_manual(
+    State(state): State<AppState>,
+    UserAuth(claims): UserAuth,
+    Json(body): Json<ManualAttendanceBody>,
+) -> Result<(StatusCode, Json<db::models::Attendance>), ApiError> {
+    // The student must exist; a typo must not create an orphan row.
+    db::student_repo::find(&state.db, body.student_id)
+        .await
+        .map_err(ApiError::Db)?
+        .ok_or_else(|| ApiError::NotFound(format!("student {}", body.student_id)))?;
+
+    // Respect the cooldown: if the student was marked in the last window
+    // (by the kiosk or by hand), do not add a duplicate. Unlike the kiosk path
+    // this reports the existing record rather than silently succeeding.
+    let last = db::attendance_repo::last_marked(&state.db, body.student_id)
+        .await
+        .map_err(ApiError::Db)?;
+    let now = chrono::Utc::now();
+    if let domain::cooldown::CooldownVerdict::WithinCooldown { remaining_seconds, .. } =
+        domain::cooldown::check(last, now, state.config.cooldown_seconds)
+    {
+        return Err(ApiError::Conflict(format!(
+            "siswa sudah ditandai hadir dalam {remaining_seconds} detik terakhir"
+        )));
+    }
+
+    let note = body
+        .note
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("absen manual oleh guru");
+
+    let record = db::attendance_repo::record(
+        &state.db,
+        db::attendance_repo::NewAttendance {
+            student_id: body.student_id,
+            device_id: None,
+            // No model was involved, so the model scores are explicitly zero —
+            // never a fake confidence that would pollute the tuning dataset.
+            similarity: 0.0,
+            margin: 0.0,
+            liveness_score: 0.0,
+            status: "manual".into(),
+            note: Some(note.into()),
+        },
+    )
+    .await
+    .map_err(ApiError::Db)?;
+
+    db::audit(
+        &state.db,
+        Some(claims.sub),
+        "attendance_manual",
+        Some(&body.student_id.to_string()),
+        Some(serde_json::json!({ "note": note })),
+    )
+    .await
+    .ok();
+
+    Ok((StatusCode::CREATED, Json(record)))
+}
+
 // ---------- monitoring ----------
 
 pub async fn monitoring_summary(

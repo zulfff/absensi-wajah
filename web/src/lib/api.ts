@@ -224,6 +224,14 @@ export function correctAttendance(id: string, note?: string): Promise<void> {
   })
 }
 
+/** Teacher fallback: record presence by hand when the camera cannot. */
+export function markAttendanceManual(studentId: string, note?: string): Promise<unknown> {
+  return request(`/api/attendance`, {
+    method: 'POST',
+    body: JSON.stringify({ student_id: studentId, note: note ?? '' }),
+  })
+}
+
 export function monitoringSummary(): Promise<MonitoringSummary> {
   return request<MonitoringSummary>('/api/monitoring/summary')
 }

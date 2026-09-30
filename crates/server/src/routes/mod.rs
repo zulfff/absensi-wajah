@@ -78,7 +78,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/devices/{id}/revoke", post(admin::revoke_device))
         .route("/api/devices/{id}", delete(admin::delete_device))
-        .route("/api/attendance", get(admin::list_attendance))
+        .route("/api/attendance", get(admin::list_attendance).post(admin::mark_attendance_manual))
         .route(
             "/api/attendance/{id}/correct",
             post(admin::correct_attendance),

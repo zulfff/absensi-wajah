@@ -196,6 +196,10 @@ function handleResult(msg: ResultMessage): void {
     celebrationNote.value = msg.already_marked ? 'Sudah absen' : 'Absensi tercatat'
     celebrationAt.value = Date.now()
     prompt.value = 'Terima kasih'
+    // Audible confirmation (plan Section 5.5): a short chime so the student
+    // knows it worked even if they are not looking at the screen. Distinct tone
+    // for a fresh record vs. an already-marked one.
+    playChime(!msg.already_marked)
     stopFrames()
     // Pause capture briefly so the person reads their name, then resume.
     if (celebrationTimer) clearTimeout(celebrationTimer)
@@ -232,6 +236,41 @@ function sendFrame(): void {
   const image = camera.capture(0.7)
   if (!image) return
   ws.send(JSON.stringify({ type: 'frame', image }))
+}
+
+// A short WebAudio chime — no asset to load, works on Android. A fresh record
+// is a rising two-note "ding"; an already-marked student gets a single lower
+// note, so the two are distinguishable by ear.
+let audioCtx: AudioContext | null = null
+function playChime(fresh: boolean): void {
+  try {
+    const Ctor =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!Ctor) return
+    audioCtx ??= new Ctor()
+    const ctx = audioCtx
+    // Browsers start the context suspended until a user gesture; the kiosk is
+    // interacted with on mount (token / start), so resume() usually succeeds.
+    if (ctx.state === 'suspended') void ctx.resume()
+    const now = ctx.currentTime
+    const notes = fresh ? [880, 1318.5] : [523.25]
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'sine'
+      osc.frequency.value = freq
+      const start = now + i * 0.16
+      gain.gain.setValueAtTime(0.0001, start)
+      gain.gain.exponentialRampToValueAtTime(0.25, start + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.35)
+      osc.connect(gain).connect(ctx.destination)
+      osc.start(start)
+      osc.stop(start + 0.4)
+    })
+  } catch {
+    /* audio is a nicety; never let it break the kiosk */
+  }
 }
 
 function teardownSocket(): void {

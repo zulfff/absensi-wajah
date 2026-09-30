@@ -20,11 +20,12 @@ Rust. Enrollment wajah dilakukan admin lewat dashboard web.
 > Server dengan pipeline ONNX asli sudah diuji end-to-end: enroll Barack →
 > dikenali (accept) → Biden yang tidak terdaftar (reject).
 >
-> Yang **belum**: foto referensi belum dienkripsi at-rest; suite uji serangan
-> fisik (foto cetak/layar) belum dijalankan; verifikasi visual UI belum
-> dilakukan oleh manusia (skor otomatis anti-slop/token/a11y = 100/A, tetapi
-> "gate lulus" bukan bukti enak dilihat). Selama model tidak tersedia, server
-> berjalan dengan pipeline **deterministik tanpa model**
+> Yang **belum**: suite uji serangan fisik (foto cetak/layar) belum dijalankan;
+> pilot 1 kelas belum. Verifikasi visual UI belum dilakukan oleh manusia (skor
+> otomatis anti-slop/token/a11y = 100/A, tetapi "gate lulus" bukan bukti enak
+> dilihat). Foto referensi **tidak disimpan** di server (hanya embedding), jadi
+> tidak ada foto biometrik yang perlu dienkripsi. Selama model tidak tersedia,
+> server berjalan dengan pipeline **deterministik tanpa model**
 > (`USE_DETERMINISTIC_PIPELINE=true`).
 
 ---
@@ -53,7 +54,7 @@ absensi-wajah/
 ├─ Cargo.toml                 workspace
 ├─ crates/
 │  ├─ domain/                 logika murni: embedding, quality gate, keputusan,
-│  │                          konsensus, cooldown, enroll. Tanpa I/O, 46 tes.
+│  │                          konsensus, cooldown, enroll. Tanpa I/O, 53 tes.
 │  ├─ face-core/              pipeline deteksi→align→liveness→embed (SCRFD,
 │  │                          ArcFace, MiniFASNet via `ort`; deterministik utk dev)
 │  ├─ db/                     sqlx: pool, migrasi, repo, Argon2, pgvector
@@ -175,7 +176,7 @@ FACE_EMBEDDER_MODEL=models/w600k_r50.onnx \
 ## Verifikasi
 
 ```bash
-cargo test --workspace                 # 93 tes (domain 46, db, server, face-core, gallery, auth)
+cargo test --workspace                 # 118 tes (domain 53, db, server, face-core, gallery, auth)
 cargo clippy --workspace --all-targets # bersih
 ./scripts/smoke.sh                     # end-to-end: enroll -> activate -> WS accept
 python3 eval/thresholds.py eval/data/scores.csv --target-far 1e-5
@@ -206,11 +207,17 @@ kiosk di perangkat lain, domain + sertifikat harus siap lebih dulu — lihat
 | `POST /api/students/{id}/enroll/frame` | **admin** | assess 1 frame, feedback kualitas |
 | `POST /api/students/{id}/enroll/commit` | **admin** | cek konsistensi+duplikat+margin, simpan |
 | `POST /api/students/{id}/activate` | **admin** | aktifkan template (setelah review) |
+| `POST /api/students/{id}/deactivate` | **admin** | nonaktifkan template (siswa berhenti dikenali) |
 | `DELETE /api/students/{id}/face` | **admin** | hapus permanen data biometrik |
 | `GET /api/users`, `POST /api/users`, `PUT/DELETE /api/users/{id}` | **admin** | kelola akun (admin/guru) |
-| `GET/POST /api/devices`, `POST /api/devices/{id}/revoke` | token / **admin** | kelola kiosk |
-| `GET /api/attendance`, `POST /api/attendance/{id}/correct` | token / **admin** | lihat / koreksi absensi |
+| `GET/POST /api/devices`, `POST /api/devices/{id}/revoke`, `DELETE /api/devices/{id}` | token / **admin** | kelola kiosk |
+| `GET /api/attendance` | token | lihat absensi per tanggal |
+| `POST /api/attendance` | token | **absen manual** oleh guru (fallback) |
+| `POST /api/attendance/{id}/correct` | **admin** | koreksi/batalkan absensi |
 | `GET /api/monitoring/summary` | token | rasio ditolak, rerata skor (24 jam) |
+| `POST /api/gallery/reload` | **admin** | muat ulang cache galeri dari DB |
+| `GET /api/kiosk/info` | device token | info perangkat + jumlah galeri |
+| `GET /api/health` | - | health check |
 | `GET /ws/kiosk` | device token (dalam pesan `hello`) | frame masuk, hasil keluar |
 
 **Dua tingkat otorisasi.** `token` = admin ATAU guru boleh baca; **admin** =
@@ -242,9 +249,9 @@ diproses.
 |---|---|---|
 | 0 | Workspace, DB, PoC ONNX, HTTPS | **selesai** — SCRFD + ArcFace + alignment terverifikasi |
 | 1 | Backend inti: DB, auth, CRUD, pipeline | **selesai**, terverifikasi e2e |
-| 2 | Web admin + enroll feedback realtime | **selesai** — 7 view, score 100/A |
+| 2 | Web admin + enroll feedback realtime | **selesai** — 8 view, score 100/A |
 | 3 | Kiosk web (kamera, WebSocket, device token) | **selesai**, terverifikasi e2e |
 | 4 | Liveness + aturan multi-frame + cooldown | **selesai** — MiniFASNet terverifikasi |
 | 5 | Evaluasi data nyata, tuning threshold, tes serangan | alat siap (`eval/thresholds.py`); uji serangan fisik belum |
-| 6 | Hardening privasi/keamanan, audit, dokumentasi | sebagian |
+| 6 | Hardening privasi/keamanan, audit, dokumentasi | **selesai untuk kode** — audit, retensi, rate limit, batas decode; foto tidak disimpan |
 | 7 | Pilot 1 kelas → rollout | belum |

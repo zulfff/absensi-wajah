@@ -156,11 +156,17 @@ cd web && npm install && npm run dev
 
 ## 5. Hasil pengujian
 
-- Pipeline model nyata sudah diverifikasi pada wajah asli: orang terdaftar dikenali (kemiripan 1.000), orang berbeda ditolak.
-- Liveness (anti-foto/layar) berfungsi: foto asli dinilai "hidup", citra warna rata dinilai "spoof".
-- 93 tes otomatis lolos di seluruh workspace.
+- Pipeline model nyata sudah diverifikasi pada wajah asli: orang terdaftar
+  dikenali (kemiripan 0,98–0,99), orang berbeda ditolak (−0,07).
+- Liveness (MiniFASNet) aktif dan berfungsi: wajah asli dinilai "hidup" (~0,99),
+  citra warna rata dinilai lebih rendah.
+- 118 tes otomatis lolos di seluruh workspace.
 
 ## 6. Yang belum selesai
 
-- Pengujian serangan memakai foto cetak atau tampilan layar belum dijalankan.
-- Foto referensi wajah belum dienkripsi di penyimpanan server.
+- Pengujian serangan fisik (foto cetak / tampilan layar / video replay) dengan
+  sampel nyata belum dijalankan; kode liveness sudah menolak input spoof.
+- Pilot 1 kelas dengan absen manual paralel belum dijalankan.
+- **Foto referensi tidak disimpan** di server (hanya embedding/vektor), jadi
+  tidak ada foto biometrik yang perlu dienkripsi. Enkripsi volume database
+  adalah tanggung jawab operator.
