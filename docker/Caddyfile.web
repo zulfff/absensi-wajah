@@ -1,0 +1,23 @@
+# Caddy config for the `web` compose service (plain HTTP on :80).
+#
+# Serves the built SPA and reverse-proxies the API + WebSocket to the Rust
+# server. In production, terminate TLS at the edge (see Caddyfile) so the
+# browser camera works — getUserMedia requires a secure context.
+
+:80 {
+    encode zstd gzip
+
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+    }
+
+    reverse_proxy /api/* server:8080
+    reverse_proxy /ws/*  server:8080
+
+    root * /srv/web
+    try_files {path} /index.html
+    file_server
+}

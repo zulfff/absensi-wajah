@@ -1,0 +1,102 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/domain",
+    "crates/face-core",
+    "crates/db",
+    "crates/server",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+authors = ["Absensi Wajah"]
+
+[workspace.dependencies]
+# Internal
+domain = { path = "crates/domain" }
+face-core = { path = "crates/face-core" }
+db = { path = "crates/db" }
+
+# Async runtime
+tokio = { version = "1.53", features = ["full"] }
+
+# Web
+axum = { version = "0.8", features = ["ws", "multipart", "macros"] }
+tower = "0.5"
+tower-http = { version = "0.7", features = ["cors", "trace", "limit"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = { version = "0.10", features = ["serde"] }
+base64 = "0.23"
+futures = "0.3"
+
+# Database
+sqlx = { version = "0.9", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls-ring",
+    "postgres",
+    "uuid",
+    "chrono",
+    "migrate",
+    "macros",
+] }
+pgvector = { version = "0.4", features = ["sqlx"] }
+
+# Auth / crypto
+argon2 = "0.6"
+jsonwebtoken = { version = "11", features = ["rust_crypto"] }
+rand = "0.9"
+sha2 = "0.10"
+subtle = "2"
+
+# Errors / logging
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Config
+dotenvy = "0.15"
+clap = { version = "4", features = ["derive", "env"] }
+
+# Images
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+
+# ML inference (ONNX Runtime). The face-core crate exposes it behind its own
+# `onnx` feature so the workspace still builds without any model binaries or
+# the ORT shared library present.
+#
+# default-features = false because the defaults pull `download-binaries` +
+# `tls-native`, which drag in openssl-sys. We load ORT dynamically from a path
+# the operator supplies (ORT_DYLIB_PATH), so none of that is needed and the
+# `onnx` feature can compile on a machine without OpenSSL headers.
+ort = { version = "2.0.0-rc.13", default-features = false, features = [
+    "std",
+    "ndarray",
+    "tracing",
+    "load-dynamic",
+] }
+ndarray = "0.17"
+
+# Testing
+# Testing. rustls so the integration test can connect over wss:// (the live
+# kiosk path is HTTPS, behind Caddy).
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2

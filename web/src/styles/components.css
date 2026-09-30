@@ -1,0 +1,405 @@
+/* Shared component classes. Each interactive element ships its states:
+ * default / hover / focus / active / disabled / loading / error / selected.
+ */
+
+/* ---- Button ----------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--button-py) var(--button-px);
+  border-radius: var(--button-radius);
+  border: 1px solid transparent;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Tactile press: a small scale-down on active. Transform-only, so it stays on
+ * the compositor, and it is skipped for reduced-motion via the global rule. */
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* Primary — the single affirmative action. */
+.btn-primary {
+  background: var(--accent-bg);
+  color: var(--accent-text);
+}
+.btn-primary:hover {
+  background: var(--accent-bg-hover);
+}
+.btn-primary:active {
+  background: var(--accent-bg-active);
+}
+
+/* Secondary — neutral, never a coloured fill. */
+.btn-secondary {
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  border-color: var(--border-default);
+}
+.btn-secondary:hover {
+  background: var(--surface-sunken);
+  border-color: var(--border-strong);
+}
+.btn-secondary:active {
+  background: var(--surface-sunken);
+}
+
+/* Ghost — toolbar / filter verbs. */
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.btn-ghost:hover {
+  background: var(--surface-sunken);
+  color: var(--text-primary);
+}
+.btn-ghost.is-active {
+  background: color-mix(in oklab, var(--accent-bg) 12%, transparent);
+  color: var(--text-link);
+}
+
+/* Destructive — destructive actions wear this in every place they appear. */
+.btn-destructive {
+  background: var(--error-bg);
+  color: var(--text-error);
+  border-color: var(--error-border);
+}
+.btn-destructive:hover {
+  background: color-mix(in oklab, var(--text-error) 16%, var(--surface-raised));
+}
+
+.btn-sm {
+  padding: 0.35rem var(--space-sm);
+  font-size: var(--text-xs);
+}
+
+/* On a coarse pointer (touch), every control meets the 44px target regardless
+ * of its visual size. Padding does the work so the hit area grows without the
+ * icon growing with it. */
+@media (pointer: coarse) {
+  .btn,
+  .btn-sm {
+    min-height: var(--touch-target);
+    padding-block: 0.6rem;
+  }
+  .input,
+  .select {
+    min-height: var(--touch-target);
+  }
+}
+
+/* ---- Card ------------------------------------------------------------- */
+
+.card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--card-radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.card-pad {
+  padding: var(--card-pad);
+}
+
+/* A flush content panel: a hairline rule and a surface tint, no floating
+ * rounded card. Used for the primary data region of a page — a card there
+ * reads as "everything is a card", the most recognizable generated-UI tell. */
+.panel {
+  background: var(--surface-raised);
+  border-top: 1px solid var(--border-default);
+}
+
+/* ---- Page header + toolbar layout ------------------------------------- */
+
+/* Title + actions on one row on desktop; on a phone the actions drop below the
+ * title and go full width, because a squeezed button beside a title is where
+ * tap targets and labels collide. */
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .page-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .page-head > .btn,
+  .page-head > a.btn {
+    width: 100%;
+  }
+  .toolbar {
+    gap: var(--space-sm);
+  }
+  .toolbar > .field,
+  .toolbar .search {
+    max-width: none;
+    width: 100%;
+  }
+}
+
+/* ---- Inputs ----------------------------------------------------------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+}
+
+.input,
+.select {
+  width: 100%;
+  padding: 0.55rem var(--space-sm);
+  background: var(--input-bg);
+  border: 1px solid var(--border-default);
+  border-radius: var(--input-radius);
+  color: var(--text-primary);
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+.input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.input:hover,
+.select:hover {
+  border-color: var(--border-strong);
+}
+
+.input:focus-visible,
+.select:focus-visible {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: var(--focus-ring);
+}
+
+.input.has-error {
+  border-color: var(--error-border);
+}
+
+.field-error {
+  font-size: var(--text-xs);
+  color: var(--text-error);
+}
+
+/* ---- Status dot ------------------------------------------------------- */
+
+/* Status is a 6px dot + word, never a pill badge. */
+.dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  flex: none;
+}
+.dot-success {
+  background: var(--text-success);
+}
+.dot-warning {
+  background: var(--text-warning);
+}
+.dot-error {
+  background: var(--text-error);
+}
+.dot-muted {
+  background: var(--text-tertiary);
+}
+
+.status-line {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+/* ---- Alert ------------------------------------------------------------ */
+
+.alert {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  font-size: var(--text-sm);
+}
+.alert-error {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+  color: var(--text-error);
+}
+.alert-warning {
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--text-warning);
+}
+.alert-success {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--text-success);
+}
+.alert-info {
+  background: var(--info-bg);
+  border-color: var(--info-border);
+  color: var(--text-link);
+}
+
+/* ---- Empty / loading states ------------------------------------------ */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  padding: var(--space-3xl) var(--space-lg);
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.empty h3 {
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+}
+
+.empty p {
+  max-width: 42ch;
+  font-size: var(--text-sm);
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface-sunken) 25%,
+    color-mix(in oklab, var(--surface-sunken) 60%, var(--surface-raised)) 50%,
+    var(--surface-sunken) 75%
+  );
+  background-size: 200% 100%;
+  border-radius: var(--radius-sm);
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* ---- Table ------------------------------------------------------------ */
+
+/* Tables scroll horizontally rather than squashing columns, so the layout
+ * reflows at 320px without clipping content (WCAG 1.4.10). */
+.table-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.table {
+  width: 100%;
+  min-width: 40rem;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-raised);
+  background: var(--surface-raised);
+  text-align: left;
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--border-default);
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 0 var(--space-md);
+  height: var(--row-height);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.table tbody tr {
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+/* Hover lift belongs only to a fine pointer; on touch it strands the highlight
+ * on the last-tapped row. */
+@media (hover: hover) and (pointer: fine) {
+  .table tbody tr:hover {
+    background: var(--surface-sunken);
+  }
+}
+
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Row actions must never be hidden behind the table's horizontal scroll.
+ * On a narrow (touch) viewport the action column is pinned to the right edge so
+ * it stays reachable no matter how far the data columns scroll — otherwise the
+ * "Hapus"/"Daftarkan" buttons sit off-screen and the row looks broken.
+ *
+ * Scoped to `.actions` (header AND cell), never `:last-child`: a table whose
+ * last column is data ("Status", "Waktu") must not be pinned. Pinning it froze
+ * the header at the right edge while its body cells kept scrolling, desyncing
+ * the column, and drew the action-column shadow on a data column. */
+@media (max-width: 768px) {
+  .table td.actions,
+  .table th.actions {
+    position: sticky;
+    right: 0;
+    z-index: var(--z-raised);
+    background: var(--surface-raised);
+    box-shadow: -1px 0 0 var(--border-subtle);
+  }
+
+  .table th.actions {
+    z-index: calc(var(--z-raised) + 1);
+  }
+
+  /* The row hover would show under the pinned cell; keep the pinned cell
+   * opaque so it does not reveal the row sliding beneath it. */
+  .table tbody tr td.actions {
+    background: var(--surface-raised);
+  }
+}

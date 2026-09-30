@@ -1,0 +1,30 @@
+[package]
+name = "face-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = []
+# Enables the real ONNX Runtime pipeline (SCRFD detect, ArcFace embed,
+# MiniFASNet liveness). Off by default so `cargo build` and `cargo test` work
+# on a machine with no models and no ORT shared library.
+onnx = ["dep:ort"]
+
+[dependencies]
+domain.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+image.workspace = true
+ndarray.workspace = true
+ort = { workspace = true, optional = true }
+
+[dev-dependencies]
+
+[[example]]
+name = "poc_onnx"
+path = "examples/poc_onnx.rs"
+required-features = ["onnx"]

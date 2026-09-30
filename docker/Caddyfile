@@ -1,0 +1,41 @@
+# Caddy reverse proxy with automatic HTTPS.
+#
+# Browser camera access (getUserMedia) REQUIRES a secure context: HTTPS on a
+# real hostname, or http://localhost. This is the reason the plan insists the
+# domain and certificate exist before Phase 3.
+#
+# Replace `absensi.example.sch.id` with your school's domain. Caddy obtains and
+# renews a Let's Encrypt certificate automatically once the domain resolves and
+# ports 80/443 reach this host.
+
+absensi.example.sch.id {
+    encode zstd gzip
+
+    # Security headers.
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Camera is only needed on the kiosk page; keep the policy permissive
+        # enough for it but nothing else.
+        Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+    }
+
+    # API + WebSocket to the Rust server.
+    reverse_proxy /api/* absensi-server:8080
+    reverse_proxy /ws/*  absensi-server:8080
+
+    # Admin SPA + kiosk page.
+    root * /srv/web
+    try_files {path} /index.html
+    file_server
+}
+
+# Local development over TLS (self-signed). Useful for testing the camera on a
+# LAN device before the real domain exists. Browsers will warn once.
+:8443 {
+    tls internal
+    reverse_proxy /api/* server:8080
+    reverse_proxy /ws/*  server:8080
+}

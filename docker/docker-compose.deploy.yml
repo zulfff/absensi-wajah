@@ -1,0 +1,93 @@
+name: absensi
+# Absensi Wajah — joins the existing FortressWAF deploy stack.
+#
+# Caddy (deploy-caddy-1) already owns :80/:443 and terminates TLS for
+# *.tkjt3yapera.my.id. This file only runs the absensi server + web containers
+# and attaches them to the same `fortress-net` network so Caddy can reach them
+# by name (absensi-server, absensi-web). It does NOT publish 80/443 itself.
+#
+# Start:   sudo docker compose -f docker/docker-compose.deploy.yml up -d --build
+# Logs:    sudo docker compose -f docker/docker-compose.deploy.yml logs -f
+# Stop:    sudo docker compose -f docker/docker-compose.deploy.yml down
+#
+# After first start, the server creates the bootstrap admin (admin/admin).
+# CHANGE IT IMMEDIATELY (see README — "Ganti sandi admin bootstrap").
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: absensi
+      POSTGRES_PASSWORD: ${ABSENSI_DB_PASSWORD:-absensi}
+      POSTGRES_DB: absensi
+    volumes:
+      - absensi-db:/var/lib/postgresql/data
+    networks:
+      - fortress-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U absensi -d absensi"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  absensi-server:
+    build:
+      # Build context is the repo root so the Dockerfile sees Cargo.toml + crates.
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        # Compile the real ONNX pipeline (SCRFD + ArcFace + MiniFASNet).
+        FEATURES: "onnx"
+    environment:
+      DATABASE_URL: postgres://absensi:${ABSENSI_DB_PASSWORD:-absensi}@db:5432/absensi
+      BIND_ADDR: 0.0.0.0:8080
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      JWT_TTL_SECONDS: "28800"
+      DB_POOL_SIZE: "16"
+      BOOTSTRAP_ADMIN_USER: ${BOOTSTRAP_ADMIN_USER:-admin}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?set BOOTSTRAP_ADMIN_PASSWORD in .env}
+      # Real pipeline: SCRFD detection + ArcFace embedding + MiniFASNet liveness.
+      USE_DETERMINISTIC_PIPELINE: ${USE_DETERMINISTIC_PIPELINE:-false}
+      T_ACCEPT: ${T_ACCEPT:-0.50}
+      T_MARGIN: ${T_MARGIN:-0.08}
+      CONSENSUS_REQUIRED: ${CONSENSUS_REQUIRED:-5}
+      CONSENSUS_WINDOW: ${CONSENSUS_WINDOW:-7}
+      T_LIVENESS: ${T_LIVENESS:-0.85}
+      COOLDOWN_SECONDS: ${COOLDOWN_SECONDS:-300}
+      TZ: ${TZ:-Asia/Jakarta}
+      FACE_DETECTOR_MODEL: /app/models/det_10g.onnx
+      FACE_EMBEDDER_MODEL: /app/models/w600k_r50.onnx
+      FACE_LIVENESS_MODEL: /app/models/minifasnet.onnx
+      ORT_DYLIB_PATH: /app/models/libonnxruntime.so
+      RUST_LOG: info,absensi_server=info
+    volumes:
+      - ../models:/app/models:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - fortress-net
+    restart: unless-stopped
+
+  absensi-web:
+    build:
+      context: ..
+      dockerfile: docker/web.Dockerfile
+    environment:
+      # The bundled Caddyfile for the web container listens on :80.
+      CADDY_SERVER: ":80"
+    volumes:
+      - ./Caddyfile.web:/etc/caddy/Caddyfile:ro
+    networks:
+      - fortress-net
+    restart: unless-stopped
+
+networks:
+  # The network created by the FortressWAF deploy stack. External: this file
+  # must not try to manage its lifecycle.
+  fortress-net:
+    external: true
+
+volumes:
+  absensi-db:

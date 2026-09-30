@@ -1,0 +1,32 @@
+# Models and ONNX Runtime shared library
+# (downloaded via scripts/download_models.sh — never committed)
+models/*.onnx
+models/*.so
+models/*.dylib
+models/*.dll
+models/*.zip
+models/CHECKSUMS.txt
+models/*/
+
+# Build artifacts
+target/
+
+# Environment
+.env
+.env.local
+
+# Web
+web/node_modules/
+web/dist/
+
+# Evaluation data (contains biometrics — never commit)
+eval/data/
+eval/out/
+*.jpg
+*.jpeg
+*.png
+!web/**/*.png
+
+# Editor / OS
+.DS_Store
+*.swp
