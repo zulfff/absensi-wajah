@@ -67,6 +67,7 @@ pub async fn list_for_date(
     date: chrono::NaiveDate,
     kelas_id: Option<Uuid>,
     timezone: &str,
+    limit: i64,
 ) -> Result<Vec<Attendance>, DbError> {
     let rows = sqlx::query_as::<_, Attendance>(
         r#"
@@ -77,11 +78,13 @@ pub async fn list_for_date(
         WHERE (a."timestamp" AT TIME ZONE $3)::date = $1
           AND ($2::uuid IS NULL OR s.kelas_id = $2)
         ORDER BY a."timestamp" DESC
+        LIMIT $4
         "#,
     )
     .bind(date)
     .bind(kelas_id)
     .bind(timezone)
+    .bind(limit)
     .fetch_all(db)
     .await?;
     Ok(rows)
@@ -109,6 +112,7 @@ pub async fn list_for_date_with_student(
     date: chrono::NaiveDate,
     kelas_id: Option<Uuid>,
     timezone: &str,
+    limit: i64,
 ) -> Result<Vec<AttendanceWithStudent>, DbError> {
     let rows = sqlx::query_as::<_, AttendanceWithStudent>(
         r#"
@@ -119,11 +123,13 @@ pub async fn list_for_date_with_student(
         WHERE (a."timestamp" AT TIME ZONE $3)::date = $1
           AND ($2::uuid IS NULL OR s.kelas_id = $2)
         ORDER BY a."timestamp" DESC
+        LIMIT $4
         "#,
     )
     .bind(date)
     .bind(kelas_id)
     .bind(timezone)
+    .bind(limit)
     .fetch_all(db)
     .await?;
     Ok(rows)

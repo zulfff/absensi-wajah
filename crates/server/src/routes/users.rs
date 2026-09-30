@@ -130,44 +130,41 @@ pub async fn update_user(
     axum::extract::Path(id): axum::extract::Path<Uuid>,
     Json(req): Json<UpdateUser>,
 ) -> Result<Json<UserView>, ApiError> {
-    let target = db::user_repo::find(&state.db, id)
-        .await
-        .map_err(ApiError::Db)?
-        .ok_or_else(|| ApiError::NotFound(format!("user {id}")))?;
-
-    // Would this change remove the last enabled admin? Check before applying.
-    let demoting_last_admin = req.role.as_deref() == Some("guru") && target.role == "admin";
-    let disabling_last_admin = req.disabled == Some(true) && target.role == "admin";
-    if (demoting_last_admin || disabling_last_admin)
-        && target.role == "admin"
-        && !target.disabled
-        && db::user_repo::count_active_admins(&state.db)
-            .await
-            .map_err(ApiError::Db)?
-            <= 1
-    {
-        return Err(ApiError::Conflict(
-            "tidak bisa menghapus peran admin aktif terakhir".into(),
-        ));
-    }
-
+    // Validate EVERY field up front. Previously the password was validated
+    // after the role/disabled writes, so `{"role":"guru","password":"short"}`
+    // demoted the account, then 400'd — a silent partial write with no audit.
     if let Some(role) = &req.role {
         validate_role(role)?;
-        db::user_repo::update_role(&state.db, id, role)
-            .await
-            .map_err(ApiError::Db)?;
-    }
-    if let Some(disabled) = req.disabled {
-        db::user_repo::set_disabled(&state.db, id, disabled)
-            .await
-            .map_err(ApiError::Db)?;
     }
     if let Some(password) = &req.password {
         validate_password(password)?;
-        db::user_repo::set_password(&state.db, id, password)
-            .await
-            .map_err(ApiError::Db)?;
     }
+
+    // Hash the password before opening the transaction (Argon2 is slow; doing it
+    // inside a tx would hold row locks for the duration).
+    let password_hash = match &req.password {
+        Some(pw) => Some(db::user_repo::hash_password(pw).map_err(ApiError::Db)?),
+        None => None,
+    };
+
+    // Apply role + disabled + password in ONE transaction, refusing any change
+    // that would remove the last enabled admin. The guard runs inside the same
+    // transaction as the write and locks the admin rows, so two concurrent
+    // demotions cannot both pass the check and leave zero admins, and a failure
+    // cannot leave a half-applied update.
+    db::user_repo::update_guarding_last_admin(
+        &state.db,
+        id,
+        req.role.as_deref(),
+        req.disabled,
+        password_hash.as_deref(),
+    )
+    .await
+    .map_err(|e| match e {
+        db::DbError::Conflict(msg) => ApiError::Conflict(msg),
+        db::DbError::NotFound(_) => ApiError::NotFound(format!("user {id}")),
+        other => ApiError::Db(other),
+    })?;
 
     db::audit(
         &state.db,
@@ -204,33 +201,23 @@ pub async fn delete_user(
         ));
     }
 
-    let target = db::user_repo::find(&state.db, id)
+    // Delete atomically, refusing to remove the last enabled admin. The guard
+    // and the delete share a transaction with the admin rows locked, so two
+    // concurrent deletes cannot both pass the check.
+    let username = db::user_repo::delete_guarding_last_admin(&state.db, id)
         .await
-        .map_err(ApiError::Db)?
-        .ok_or_else(|| ApiError::NotFound(format!("user {id}")))?;
-
-    if target.role == "admin"
-        && !target.disabled
-        && db::user_repo::count_active_admins(&state.db)
-            .await
-            .map_err(ApiError::Db)?
-            <= 1
-    {
-        return Err(ApiError::Conflict(
-            "tidak bisa menghapus admin aktif terakhir".into(),
-        ));
-    }
-
-    db::user_repo::delete(&state.db, id)
-        .await
-        .map_err(ApiError::Db)?;
+        .map_err(|e| match e {
+            db::DbError::Conflict(msg) => ApiError::Conflict(msg),
+            db::DbError::NotFound(_) => ApiError::NotFound(format!("user {id}")),
+            other => ApiError::Db(other),
+        })?;
 
     db::audit(
         &state.db,
         Some(claims.sub),
         "user_deleted",
         Some(&id.to_string()),
-        Some(serde_json::json!({ "username": target.username })),
+        Some(serde_json::json!({ "username": username })),
     )
     .await
     .ok();

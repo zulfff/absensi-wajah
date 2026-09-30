@@ -105,6 +105,24 @@ async fn handle(socket: WebSocket, state: AppState) {
         }
     };
 
+    // Cap live kiosk connections *after* authentication, so unauthenticated
+    // sockets cannot occupy slots (they only ever held one during the bounded
+    // 15s hello window). Each authenticated connection holds a permit for its
+    // whole life, bounding how many can compete for the inference pool.
+    let _permit = match Arc::clone(&state.kiosk_slots).try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            let _ = send(
+                &mut sender,
+                &ServerMessage::Error {
+                    message: "Server sibuk: terlalu banyak kiosk terhubung.".into(),
+                },
+            )
+            .await;
+            return;
+        }
+    };
+
     let _ = db::device_repo::touch(&state.db, device.id).await;
 
     let ready = ServerMessage::Ready {
@@ -118,6 +136,11 @@ async fn handle(socket: WebSocket, state: AppState) {
 
     // --- Frame loop. ---
     let window_size = state.config.consensus_window;
+    // Keep a copy of the device so a panicked frame can be recovered with a
+    // session that still carries the real device id (the moved session is lost
+    // when the blocking task panics; a nil-id session would fail the FK on the
+    // next attendance insert).
+    let recovery_device = device.clone();
     let mut session = AttendanceSession::new(device, window_size);
     let face = Arc::clone(&state.face);
 
@@ -234,91 +257,121 @@ async fn handle(socket: WebSocket, state: AppState) {
                 // observe() is CPU-bound (inference + matching). Move the
                 // session into a blocking task and bring it back, so the async
                 // runtime thread is never stalled.
+                //
+                // The join must NOT be an `expect`: a panic inside the pipeline
+                // (reached from untrusted frame bytes) would otherwise abort
+                // this whole connection task. On a panic we recover by handing
+                // the session back as a fresh placeholder and telling the kiosk,
+                // so one bad frame cannot take the connection down.
                 let moved_session = std::mem::replace(
                     &mut session,
                     AttendanceSession::new_placeholder(window_size),
                 );
-                let (session_back, obs) = tokio::task::spawn_blocking(move || {
+                match tokio::task::spawn_blocking(move || {
                     let mut s = moved_session;
                     let o = s.observe(&face_engine, &frame, &gallery, &thresholds);
                     (s, o)
                 })
                 .await
-                .expect("blocking task panicked");
-                session = session_back;
-
-                match resolve(&state, &mut session, obs).await {
-                    Ok(SessionVerdict::Continue {
-                        prompt,
-                        frames_seen,
-                    }) => {
+                {
+                    Ok((session_back, obs)) => {
+                        session = session_back;
+                        match resolve(&state, &mut session, obs).await {
+                            Ok(SessionVerdict::Continue {
+                                prompt,
+                                frames_seen,
+                            }) => {
+                                let _ = send(
+                                    &mut sender,
+                                    &ServerMessage::Result {
+                                        kind: "continue",
+                                        prompt: Some(prompt),
+                                        message: None,
+                                        student: None,
+                                        similarity: None,
+                                        already_marked: None,
+                                        frames_seen: Some(frames_seen),
+                                    },
+                                )
+                                .await;
+                            }
+                            Ok(SessionVerdict::Accepted {
+                                student_id,
+                                similarity,
+                                already_marked,
+                                ..
+                            }) => {
+                                let student = db::student_repo::find(&state.db, student_id)
+                                    .await
+                                    .ok()
+                                    .flatten()
+                                    .map(|s| StudentView {
+                                        id: s.id,
+                                        nama: s.nama,
+                                        nis: s.nis,
+                                    });
+                                let _ = send(
+                                    &mut sender,
+                                    &ServerMessage::Result {
+                                        kind: "accepted",
+                                        prompt: None,
+                                        message: Some(if already_marked {
+                                            "Sudah absen.".into()
+                                        } else {
+                                            "Absensi tercatat.".into()
+                                        }),
+                                        student,
+                                        similarity: Some(similarity),
+                                        already_marked: Some(already_marked),
+                                        frames_seen: None,
+                                    },
+                                )
+                                .await;
+                            }
+                            Ok(SessionVerdict::Rejected { message }) => {
+                                let _ = send(
+                                    &mut sender,
+                                    &ServerMessage::Result {
+                                        kind: "rejected",
+                                        prompt: None,
+                                        message: Some(message),
+                                        student: None,
+                                        similarity: None,
+                                        already_marked: None,
+                                        frames_seen: None,
+                                    },
+                                )
+                                .await;
+                            }
+                            Err(e) => {
+                                let _ = send(
+                                    &mut sender,
+                                    &ServerMessage::Error {
+                                        message: e.public_message(),
+                                    },
+                                )
+                                .await;
+                            }
+                        }
+                    }
+                    Err(join_err) => {
+                        // The pipeline panicked on this frame, so the moved
+                        // session is gone. Rebuild a clean one that still
+                        // carries the real device id (never the nil-id
+                        // placeholder, which would fail the attendance FK), and
+                        // keep the connection alive for the next frame.
+                        tracing::error!(error = %join_err, "face pipeline task panicked; frame dropped");
+                        session = AttendanceSession::new(recovery_device.clone(), window_size);
                         let _ = send(
                             &mut sender,
                             &ServerMessage::Result {
                                 kind: "continue",
-                                prompt: Some(prompt),
+                                prompt: Some("Frame tidak dapat diproses. Coba lagi.".into()),
                                 message: None,
                                 student: None,
                                 similarity: None,
                                 already_marked: None,
-                                frames_seen: Some(frames_seen),
-                            },
-                        )
-                        .await;
-                    }
-                    Ok(SessionVerdict::Accepted {
-                        student_id,
-                        similarity,
-                        already_marked,
-                        ..
-                    }) => {
-                        let student = db::student_repo::find(&state.db, student_id)
-                            .await
-                            .ok()
-                            .flatten()
-                            .map(|s| StudentView {
-                                id: s.id,
-                                nama: s.nama,
-                                nis: s.nis,
-                            });
-                        let _ = send(
-                            &mut sender,
-                            &ServerMessage::Result {
-                                kind: "accepted",
-                                prompt: None,
-                                message: Some(if already_marked {
-                                    "Sudah absen.".into()
-                                } else {
-                                    "Absensi tercatat.".into()
-                                }),
-                                student,
-                                similarity: Some(similarity),
-                                already_marked: Some(already_marked),
                                 frames_seen: None,
-                            },
-                        )
-                        .await;
-                    }
-                    Ok(SessionVerdict::Rejected { message }) => {
-                        let _ = send(
-                            &mut sender,
-                            &ServerMessage::Result {
-                                kind: "rejected",
-                                prompt: None,
-                                message: Some(message),
-                                student: None,
-                                similarity: None,
-                                already_marked: None,
-                                frames_seen: None,
-                            },
-                        )
-                        .await;
-                    }
-                    Err(e) => {
-                        let _ = send(
-                            &mut sender,
-                            &ServerMessage::Error {
-                                message: e.public_message(),
                             },
                         )
                         .await;

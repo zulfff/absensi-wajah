@@ -122,19 +122,28 @@ pub async fn find(db: &Db, id: Uuid) -> Result<Option<Student>, DbError> {
     Ok(row)
 }
 
+/// Partial update. `kelas_id` is a double option so "leave unchanged" and
+/// "clear the class" are distinguishable: `None` -> no change, `Some(None)` ->
+/// set NULL, `Some(Some(id))` -> set the class.
 pub async fn update(
     db: &Db,
     id: Uuid,
     nama: Option<String>,
-    kelas_id: Option<Uuid>,
+    kelas_id: Option<Option<Uuid>>,
     status: Option<String>,
 ) -> Result<Student, DbError> {
+    // Split the double option into the two values the SQL needs: whether to
+    // touch the column at all, and what to set it to.
+    let (set_kelas, kelas_value) = match kelas_id {
+        None => (false, None),
+        Some(v) => (true, v),
+    };
     let row = sqlx::query_as::<_, Student>(
         r#"
         UPDATE students
         SET nama = COALESCE($2, nama),
-            kelas_id = COALESCE($3, kelas_id),
-            status = COALESCE($4, status),
+            kelas_id = CASE WHEN $3 THEN $4 ELSE kelas_id END,
+            status = COALESCE($5, status),
             updated_at = now()
         WHERE id = $1
         RETURNING id, nis, nama, kelas_id, status, consent_granted, created_at
@@ -142,7 +151,8 @@ pub async fn update(
     )
     .bind(id)
     .bind(nama)
-    .bind(kelas_id)
+    .bind(set_kelas)
+    .bind(kelas_value)
     .bind(status)
     .fetch_optional(db)
     .await?

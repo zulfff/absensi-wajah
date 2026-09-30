@@ -102,6 +102,11 @@ pub struct AppState {
     pub face: Arc<dyn FaceEngine>,
     pub gallery: Arc<GalleryCache>,
     pub login_limiter: Arc<RateLimiter>,
+    /// Bounds concurrent kiosk WebSocket connections. Each frame occupies a
+    /// blocking task for a full inference pass; without a cap, a client with a
+    /// valid token could open unbounded sockets and starve real kiosks of the
+    /// blocking pool. A permit is held for the whole connection.
+    pub kiosk_slots: Arc<tokio::sync::Semaphore>,
     /// A valid Argon2 PHC hash of a random, never-matching password.
     ///
     /// Login verifies against this when the username is unknown, so the same
@@ -132,6 +137,9 @@ impl AppState {
             face,
             gallery,
             login_limiter: Arc::new(RateLimiter::new(10, 60)),
+            // 64 concurrent kiosk connections is far more than any school needs
+            // (one per gate) while keeping total inference concurrency bounded.
+            kiosk_slots: Arc::new(tokio::sync::Semaphore::new(64)),
             dummy_password_hash,
         }
     }

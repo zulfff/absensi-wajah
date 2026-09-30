@@ -79,16 +79,6 @@ pub async fn count(db: &Db) -> Result<i64, DbError> {
     Ok(n)
 }
 
-/// Number of enabled admin accounts — used to refuse changes that would leave
-/// the system without a way to manage it.
-pub async fn count_active_admins(db: &Db) -> Result<i64, DbError> {
-    let (n,): (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM users WHERE role = 'admin' AND NOT disabled")
-            .fetch_one(db)
-            .await?;
-    Ok(n)
-}
-
 /// All users, newest first (never returns the password hash to callers that
 /// serialise `User` — the field is `#[serde(skip_serializing)]`).
 pub async fn list(db: &Db) -> Result<Vec<User>, DbError> {
@@ -104,52 +94,114 @@ pub async fn list(db: &Db) -> Result<Vec<User>, DbError> {
     Ok(rows)
 }
 
-pub async fn update_role(db: &Db, id: Uuid, role: &str) -> Result<(), DbError> {
-    let res = sqlx::query("UPDATE users SET role = $2 WHERE id = $1")
-        .bind(id)
-        .bind(role)
-        .execute(db)
-        .await?;
-    if res.rows_affected() == 0 {
-        return Err(DbError::NotFound(format!("user {id}")));
+/// Apply role, disabled, and/or password changes atomically, refusing any change
+/// that would leave the system with zero enabled admins.
+///
+/// Guard and writes share one transaction. `SELECT ... FOR UPDATE` locks every
+/// admin row while the count is taken, so two concurrent requests cannot both
+/// observe "2 admins" and both demote — the race that could otherwise leave no
+/// way into the system. `None` for any field means "leave unchanged";
+/// `password_hash` is the already-computed Argon2 PHC string.
+pub async fn update_guarding_last_admin(
+    db: &Db,
+    id: Uuid,
+    role: Option<&str>,
+    disabled: Option<bool>,
+    password_hash: Option<&str>,
+) -> Result<(), DbError> {
+    let mut tx = db.begin().await?;
+
+    // Lock all admin rows so the count below cannot change under us.
+    let _locked: Vec<(Uuid,)> =
+        sqlx::query_as("SELECT id FROM users WHERE role = 'admin' FOR UPDATE")
+            .fetch_all(&mut *tx)
+            .await?;
+
+    let target: Option<(String, bool)> =
+        sqlx::query_as("SELECT role, disabled FROM users WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let (target_role, target_disabled) =
+        target.ok_or_else(|| DbError::NotFound(format!("user {id}")))?;
+
+    let new_role = role.unwrap_or(&target_role).to_string();
+    let new_disabled = disabled.unwrap_or(target_disabled);
+
+    // Would this remove the last enabled admin?
+    let loses_admin = target_role == "admin"
+        && !target_disabled
+        && (new_role != "admin" || new_disabled);
+    if loses_admin {
+        let (n,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM users WHERE role = 'admin' AND NOT disabled")
+                .fetch_one(&mut *tx)
+                .await?;
+        if n <= 1 {
+            return Err(DbError::Conflict(
+                "tidak bisa menghapus peran admin aktif terakhir".into(),
+            ));
+        }
     }
+
+    sqlx::query(
+        "UPDATE users
+         SET role = $2,
+             disabled = $3,
+             password_hash = COALESCE($4, password_hash)
+         WHERE id = $1",
+    )
+    .bind(id)
+    .bind(new_role)
+    .bind(new_disabled)
+    .bind(password_hash)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
     Ok(())
 }
 
-pub async fn set_disabled(db: &Db, id: Uuid, disabled: bool) -> Result<(), DbError> {
-    let res = sqlx::query("UPDATE users SET disabled = $2 WHERE id = $1")
-        .bind(id)
-        .bind(disabled)
-        .execute(db)
-        .await?;
-    if res.rows_affected() == 0 {
-        return Err(DbError::NotFound(format!("user {id}")));
-    }
-    Ok(())
-}
+/// Delete a user, refusing to remove the last enabled admin. Returns the
+/// deleted user's username.
+///
+/// Guard and delete share one transaction, with admin rows locked, so two
+/// concurrent deletes cannot both observe "one admin left" and both proceed.
+pub async fn delete_guarding_last_admin(db: &Db, id: Uuid) -> Result<String, DbError> {
+    let mut tx = db.begin().await?;
 
-pub async fn set_password(db: &Db, id: Uuid, password: &str) -> Result<(), DbError> {
-    let hash = hash_password(password)?;
-    let res = sqlx::query("UPDATE users SET password_hash = $2 WHERE id = $1")
-        .bind(id)
-        .bind(hash)
-        .execute(db)
-        .await?;
-    if res.rows_affected() == 0 {
-        return Err(DbError::NotFound(format!("user {id}")));
-    }
-    Ok(())
-}
+    let _locked: Vec<(Uuid,)> =
+        sqlx::query_as("SELECT id FROM users WHERE role = 'admin' FOR UPDATE")
+            .fetch_all(&mut *tx)
+            .await?;
 
-pub async fn delete(db: &Db, id: Uuid) -> Result<(), DbError> {
-    let res = sqlx::query("DELETE FROM users WHERE id = $1")
-        .bind(id)
-        .execute(db)
-        .await?;
-    if res.rows_affected() == 0 {
-        return Err(DbError::NotFound(format!("user {id}")));
+    let target: Option<(String, String, bool)> =
+        sqlx::query_as("SELECT username, role, disabled FROM users WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let (username, role, disabled) =
+        target.ok_or_else(|| DbError::NotFound(format!("user {id}")))?;
+
+    if role == "admin" && !disabled {
+        let (n,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM users WHERE role = 'admin' AND NOT disabled")
+                .fetch_one(&mut *tx)
+                .await?;
+        if n <= 1 {
+            return Err(DbError::Conflict(
+                "tidak bisa menghapus admin aktif terakhir".into(),
+            ));
+        }
     }
-    Ok(())
+
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(username)
 }
 
 #[cfg(test)]

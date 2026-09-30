@@ -34,10 +34,26 @@ pub struct LoginResponse {
 pub async fn login(
     State(state): State<AppState>,
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, ApiError> {
     // Rate-limit by client IP to slow brute force.
-    let key = format!("login:{}", addr.ip());
+    //
+    // The server runs behind Caddy, so `addr` is the *proxy's* address — the
+    // same for every client. Keying on it would make one attacker (or ~11
+    // legitimate logins a minute) lock out every user, while giving no per-
+    // attacker protection. Prefer the client IP Caddy put in `X-Forwarded-For`.
+    //
+    // Caddy appends the real peer address and, by default, *ignores* any
+    // client-supplied `X-Forwarded-For`, so the right-most entry is the address
+    // Caddy itself observed — not attacker-controlled. With no header (direct
+    // connection, e.g. dev), fall back to the TCP peer.
+    let client_ip = client_ip_from(&headers, addr.ip());
+    // Per-IP bucket only. A shared/global bucket would be a trivial DoS: ten
+    // failed attempts from anywhere would lock every legitimate user out for
+    // the window. The limiter's map is itself bounded (a sweep drops expired
+    // windows), so a flood from many IPs cannot exhaust memory either.
+    let key = format!("login:ip:{client_ip}");
     if !state.login_limiter.check(&key) {
         return Err(ApiError::TooManyRequests);
     }
@@ -94,6 +110,27 @@ pub async fn me(
         "username": user.username,
         "role": user.role,
     })))
+}
+
+/// The `X-Forwarded-For` header name, lower-cased for `HeaderMap` lookup.
+const XFF: &str = "x-forwarded-for";
+
+/// Resolve the client IP for rate limiting, preferring the proxy-set
+/// `X-Forwarded-For`.
+///
+/// Takes the **right-most** entry: Caddy appends the address it actually saw and
+/// ignores client-supplied values, so the last element is trustworthy while
+/// anything the client prepended is not. Falls back to the TCP peer when the
+/// header is absent or malformed. Only used for rate-limit keying; never for
+/// authorization.
+fn client_ip_from(headers: &axum::http::HeaderMap, peer: std::net::IpAddr) -> std::net::IpAddr {
+    headers
+        .get(XFF)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.rsplit(',').next())
+        .map(str::trim)
+        .and_then(|s| s.parse::<std::net::IpAddr>().ok())
+        .unwrap_or(peer)
 }
 
 // ---------- students ----------
@@ -199,8 +236,24 @@ pub async fn get_student(
 #[derive(Deserialize)]
 pub struct UpdateStudent {
     pub nama: Option<String>,
-    pub kelas_id: Option<Uuid>,
+    /// `None` = field absent (leave unchanged); `Some(None)` = explicit JSON
+    /// `null` (clear the class); `Some(Some(id))` = set the class. Without the
+    /// outer/inner distinction a partial update cannot express "unassign".
+    #[serde(default, deserialize_with = "double_option")]
+    pub kelas_id: Option<Option<Uuid>>,
     pub status: Option<String>,
+}
+
+/// Deserialize an optional, nullable field into `Option<Option<T>>`.
+///
+/// serde cannot distinguish "absent" from "null" for a plain `Option<T>`. This
+/// helper does: absent -> `None`, `null` -> `Some(None)`, value -> `Some(Some)`.
+fn double_option<'de, D, T>(de: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(de).map(Some)
 }
 
 pub async fn update_student(
@@ -371,12 +424,18 @@ pub async fn list_attendance(
     UserAuth(_): UserAuth,
     Query(q): Query<AttendanceQuery>,
 ) -> Result<Json<Vec<AttendanceRow>>, ApiError> {
+    // Hard cap on rows returned for one day. A school day is bounded by the
+    // student count, but an unbounded response array is a resource-exhaustion
+    // surface (and a slow query over a large `attendance` slice). 5000 is far
+    // above any real school's daily check-in count.
+    const MAX_ATTENDANCE_ROWS: i64 = 5000;
     let date = q.tanggal.unwrap_or_else(|| state.config.today_local());
     let rows = db::attendance_repo::list_for_date_with_student(
         &state.db,
         date,
         q.kelas_id,
         &state.config.timezone,
+        MAX_ATTENDANCE_ROWS,
     )
     .await
     .map_err(ApiError::Db)?;
@@ -461,4 +520,67 @@ pub async fn reload_gallery(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let n = state.gallery.reload(&state.db).await;
     Ok(Json(serde_json::json!({ "students": n })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::{HeaderMap, HeaderValue};
+    use std::net::{IpAddr, Ipv4Addr};
+
+    fn peer() -> IpAddr {
+        IpAddr::V4(Ipv4Addr::new(10, 0, 0, 99))
+    }
+
+    #[test]
+    fn uses_rightmost_forwarded_entry() {
+        let mut h = HeaderMap::new();
+        // A client at 1.2.3.4 through Caddy; a client could prepend a lie, but
+        // only the right-most (Caddy-appended) value is trusted.
+        h.insert(
+            XFF,
+            HeaderValue::from_static("1.2.3.4, 5.6.7.8, 9.9.9.9"),
+        );
+        assert_eq!(
+            client_ip_from(&h, peer()),
+            IpAddr::V4(Ipv4Addr::new(9, 9, 9, 9))
+        );
+    }
+
+    #[test]
+    fn falls_back_to_peer_without_header() {
+        assert_eq!(client_ip_from(&HeaderMap::new(), peer()), peer());
+    }
+
+    #[test]
+    fn falls_back_to_peer_on_garbage() {
+        let mut h = HeaderMap::new();
+        h.insert(XFF, HeaderValue::from_static("not-an-ip"));
+        assert_eq!(client_ip_from(&h, peer()), peer());
+    }
+
+    #[test]
+    fn parses_single_ipv6_entry() {
+        let mut h = HeaderMap::new();
+        h.insert(XFF, HeaderValue::from_static("2001:db8::1"));
+        assert_eq!(
+            client_ip_from(&h, peer()),
+            "2001:db8::1".parse::<IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn update_student_distinguishes_absent_from_null_kelas() {
+        // Absent -> no change.
+        let absent: UpdateStudent = serde_json::from_str(r#"{"nama":"Budi"}"#).unwrap();
+        assert_eq!(absent.kelas_id, None);
+        // Explicit null -> clear to NULL.
+        let cleared: UpdateStudent = serde_json::from_str(r#"{"kelas_id":null}"#).unwrap();
+        assert_eq!(cleared.kelas_id, Some(None));
+        // A value -> set it.
+        let id = Uuid::from_u128(42);
+        let set: UpdateStudent =
+            serde_json::from_str(&format!(r#"{{"kelas_id":"{id}"}}"#)).unwrap();
+        assert_eq!(set.kelas_id, Some(Some(id)));
+    }
 }

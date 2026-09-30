@@ -70,11 +70,21 @@ pub async fn enroll_frame(
     let output = match state.face.process(&image) {
         Ok(o) => o,
         Err(e) => {
+            // Machine-readable reason (the field's contract) plus human guidance
+            // tuned to the failure: more than one face is a framing problem, not
+            // "no face".
+            let (reason, guidance) = match e {
+                face_core::FaceError::MultipleFaces(_) => (
+                    "multiple_faces",
+                    "Terdeteksi lebih dari satu wajah. Hanya satu orang di depan kamera.",
+                ),
+                _ => ("face_error", "Wajah tidak terdeteksi dengan jelas."),
+            };
             return Ok(Json(FrameResponse {
                 accepted: false,
                 score: 0.0,
-                reason: Some(format!("{e}")),
-                guidance: "Wajah tidak terdeteksi dengan jelas.".into(),
+                reason: Some(reason.into()),
+                guidance: guidance.into(),
             }));
         }
     };
@@ -111,10 +121,27 @@ pub async fn enroll_frame(
         domain::quality::FrameQuality::Rejected { reason } => Ok(Json(FrameResponse {
             accepted: false,
             score: 0.0,
-            reason: Some(serde_json::to_string(&reason).unwrap_or_default()),
+            // Stable machine-readable code, consistent with the other reasons.
+            reason: Some(quality_reason_code(reason)),
             guidance: reason.guidance().into(),
         })),
     }
+}
+
+/// A stable snake_case code for a quality rejection, so `reason` is always the
+/// same kind of value (a short code) regardless of which path produced it.
+fn quality_reason_code(reason: domain::quality::QualityRejection) -> String {
+    use domain::quality::QualityRejection as Q;
+    match reason {
+        Q::NotExactlyOneFace { .. } => "not_exactly_one_face",
+        Q::FaceTooSmall { .. } => "face_too_small",
+        Q::TooBlurry { .. } => "too_blurry",
+        Q::BadExposure { .. } => "bad_exposure",
+        Q::Backlit { .. } => "backlit",
+        Q::PoseOutOfRange { .. } => "pose_out_of_range",
+        Q::EyesClosedOrOccluded => "eyes_closed_or_occluded",
+    }
+    .to_string()
 }
 
 #[derive(Deserialize)]
@@ -335,6 +362,7 @@ pub async fn activate(
     AdminAuth(claims): AdminAuth,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    ensure_student_exists(&state, id).await?;
     let n = db::face_repo::activate_templates(&state.db, id)
         .await
         .map_err(ApiError::Db)?;
@@ -359,6 +387,7 @@ pub async fn deactivate(
     AdminAuth(claims): AdminAuth,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    ensure_student_exists(&state, id).await?;
     db::face_repo::deactivate_templates(&state.db, id)
         .await
         .map_err(ApiError::Db)?;
@@ -381,6 +410,10 @@ pub async fn delete_face(
     AdminAuth(claims): AdminAuth,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // Refuse an unknown student id: otherwise a typo/wrong id silently
+    // "succeeds" and writes a biometric_deleted audit row for an entity that
+    // never existed, corrupting the retention log.
+    ensure_student_exists(&state, id).await?;
     let n = db::face_repo::delete_templates(&state.db, id)
         .await
         .map_err(ApiError::Db)?;
@@ -395,4 +428,48 @@ pub async fn delete_face(
     .await
     .ok();
     Ok(Json(serde_json::json!({ "deleted_templates": n })))
+}
+
+/// 404 unless the student exists. Keeps biometric mutation endpoints from
+/// silently no-op'ing (and auditing) an id that names no student.
+async fn ensure_student_exists(state: &AppState, id: Uuid) -> Result<(), ApiError> {
+    db::student_repo::find(&state.db, id)
+        .await
+        .map_err(ApiError::Db)?
+        .ok_or_else(|| ApiError::NotFound(format!("student {id}")))?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::quality_reason_code;
+    use domain::quality::QualityRejection as Q;
+
+    #[test]
+    fn quality_reasons_map_to_stable_codes() {
+        assert_eq!(
+            quality_reason_code(Q::NotExactlyOneFace { count: 0 }),
+            "not_exactly_one_face"
+        );
+        assert_eq!(
+            quality_reason_code(Q::FaceTooSmall {
+                min_px: 112,
+                got_px: 50
+            }),
+            "face_too_small"
+        );
+        assert_eq!(
+            quality_reason_code(Q::EyesClosedOrOccluded),
+            "eyes_closed_or_occluded"
+        );
+        assert_eq!(
+            quality_reason_code(Q::PoseOutOfRange {
+                max_degrees: 25.0,
+                yaw: 40.0,
+                pitch: 0.0,
+                roll: 0.0
+            }),
+            "pose_out_of_range"
+        );
+    }
 }

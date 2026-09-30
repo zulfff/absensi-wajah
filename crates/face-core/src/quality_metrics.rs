@@ -78,10 +78,22 @@ pub fn of_region(
     if w == 0 || h == 0 {
         return None;
     }
-    if x + w > img_w || y + h > img_h {
+    // Checked arithmetic: `x`/`w` come from a detector's bounding box, which is
+    // derived from model output. A huge (or saturated) value would make a plain
+    // `x + w` wrap in release builds, pass the bounds check, and then either
+    // index out of bounds or attempt a multi-gigabyte allocation. Reject any
+    // region that does not fit in the image.
+    let x_end = x.checked_add(w)?;
+    let y_end = y.checked_add(h)?;
+    if x_end > img_w || y_end > img_h {
         return None;
     }
-    let mut out = Vec::with_capacity((w * h) as usize);
+    // The requested pixel count must be representable, not merely fit in u32.
+    let area = (w as usize).checked_mul(h as usize)?;
+    if area > pixels.len() / 3 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(area);
     for row in 0..h {
         for col in 0..w {
             let px = ((y + row) as usize) * (img_w as usize) + ((x + col) as usize);
@@ -145,5 +157,22 @@ mod tests {
         let px = vec![0u8; 10 * 10 * 3];
         assert!(of_region(&px, 10, 10, 5, 5, 10, 10).is_none());
         assert!(of_region(&px, 10, 10, 0, 0, 4, 4).is_some());
+    }
+
+    #[test]
+    fn huge_region_does_not_overflow_or_allocate() {
+        // A saturated bbox width would wrap `x + w` in release builds. The
+        // checked path must reject it instead of passing the bounds test.
+        let px = vec![0u8; 10 * 10 * 3];
+        assert!(of_region(&px, 10, 10, 10, 10, u32::MAX - 5, 10).is_none());
+        assert!(of_region(&px, 10, 10, 0, 0, u32::MAX, u32::MAX).is_none());
+    }
+
+    #[test]
+    fn region_larger_than_buffer_is_rejected() {
+        // Geometry fits img_w x img_h but the buffer is too small for it: must
+        // not index out of bounds.
+        let px = vec![0u8; 4 * 4 * 3];
+        assert!(of_region(&px, 8, 8, 0, 0, 8, 8).is_none());
     }
 }
