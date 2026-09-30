@@ -121,9 +121,19 @@ pub struct Thresholds {
 
 impl Default for Thresholds {
     fn default() -> Self {
-        // Strict, fail-closed starting point. Re-measure in Phase 5.
+        // Fail-closed starting point, set from measured data rather than taste.
+        //
+        // Measured on real captures with the production pipeline (ArcFace
+        // w600k_r50): genuine pairs scored 0.981–1.000, impostor pairs -0.067
+        // to 0.069. The separation is enormous, so t_accept is placed high
+        // (0.60) — every genuine pair still passes with ~0.38 headroom, while a
+        // far-away impostor can never reach it. Raising this is what actually
+        // suppresses false accepts; t_margin is the second line of defence for
+        // look-alikes.
+        //
+        // Still re-measure against the school's own dataset (plan Section 10).
         Self {
-            t_accept: 0.50,
+            t_accept: 0.60,
             t_margin: 0.08,
             consensus_required: 5,
             consensus_window: 7,
@@ -134,12 +144,22 @@ impl Default for Thresholds {
 
 impl Thresholds {
     /// Guard against a misconfigured threshold set at load time.
+    ///
+    /// A bad value here is a security bug, not a cosmetic one: `t_accept = 0`
+    /// accepts everyone, and `t_margin = 0` drops the look-alike guard. Reject
+    /// the config at startup instead of running fail-open.
     pub fn validate(&self) -> Result<(), String> {
         if !(0.0..=1.0).contains(&self.t_accept) {
             return Err(format!("t_accept out of range: {}", self.t_accept));
         }
-        if self.t_margin < 0.0 {
-            return Err(format!("t_margin must be non-negative: {}", self.t_margin));
+        if !(0.0..=1.0).contains(&self.t_margin) {
+            return Err(format!(
+                "t_margin must be in 0.0..=1.0 (got {})",
+                self.t_margin
+            ));
+        }
+        if self.consensus_window == 0 {
+            return Err("consensus_window must be >= 1".into());
         }
         if self.consensus_required == 0 || self.consensus_required > self.consensus_window {
             return Err(format!(

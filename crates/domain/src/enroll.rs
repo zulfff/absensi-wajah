@@ -36,10 +36,24 @@ pub struct EnrollThresholds {
 
 impl Default for EnrollThresholds {
     fn default() -> Self {
+        // Calibrated against the production pipeline (see crates/face-core
+        // examples/measure_scores.rs): same-person captures cluster at >= 0.98,
+        // different people at <= 0.07. These values therefore sit in the wide,
+        // empty band between the two clusters, not near either one.
+        //
+        // - min_internal_similarity 0.60: a frame must agree strongly with the
+        //   session medoid to be kept; a stray second face (a passer-by) scores
+        //   ~0 and is dropped, while all genuine captures stay.
+        // - duplicate_similarity 0.60: another student whose centroid is already
+        //   this close to the new one is almost certainly the same person
+        //   (genuine pairs start at 0.98), so block before the gallery is
+        //   polluted.
+        // - min_separation 0.30 -> max_allowed 0.70: keep a wide gap from the
+        //   nearest neighbour so a look-alike cannot be confused later.
         Self {
-            min_internal_similarity: 0.45,
-            duplicate_similarity: 0.62,
-            min_separation: 0.12,
+            min_internal_similarity: 0.60,
+            duplicate_similarity: 0.60,
+            min_separation: 0.30,
             min_frames: 5,
         }
     }

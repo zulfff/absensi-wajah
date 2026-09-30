@@ -28,3 +28,16 @@ ort = { workspace = true, optional = true }
 name = "poc_onnx"
 path = "examples/poc_onnx.rs"
 required-features = ["onnx"]
+
+# Threshold-calibration tools: measure genuine/impostor score distributions and
+# per-frame quality signals with the real pipeline. Not part of the product;
+# build with --features onnx.
+[[example]]
+name = "measure_scores"
+path = "examples/measure_scores.rs"
+required-features = ["onnx"]
+
+[[example]]
+name = "why_quality"
+path = "examples/why_quality.rs"
+required-features = ["onnx"]

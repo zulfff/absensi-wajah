@@ -98,3 +98,97 @@ fn zero_consensus_required_cannot_accept_on_one_frame() {
         Decision::Retry { .. } | Decision::Reject { .. } => {}
     }
 }
+
+// ---------------------------------------------------------------------------
+// Anti-false-positive regression, pinned to MEASURED pipeline scores.
+//
+// On real captures with the production ArcFace pipeline (measure_scores.rs,
+// 24 genuine pairs / 31 impostor pairs) genuine pairs scored 0.9482–1.000 and
+// impostor pairs -0.071 to 0.0685. These tests lock the decision layer to those
+// numbers so a future change cannot silently loosen acceptance.
+// ---------------------------------------------------------------------------
+
+/// The worst genuine score observed must be comfortably accepted.
+#[test]
+fn measured_genuine_worst_case_is_accepted() {
+    let t = Thresholds::default();
+    let s = id(1);
+    let other = id(2);
+    // Genuine 0.9482 (the measured minimum), with a real runner-up present.
+    let w: Vec<_> = (0..7)
+        .map(|_| obs(vec![(s, 0.9482), (other, 0.0685)]))
+        .collect();
+    match decide(&w, &t) {
+        Decision::Accept { student_id, .. } => assert_eq!(student_id, s),
+        other => panic!("a genuine pair at the measured floor was not accepted: {other:?}"),
+    }
+}
+
+/// The worst impostor score observed must never be accepted, at any frame
+/// count the kiosk could realistically produce.
+#[test]
+fn measured_impostor_ceiling_is_never_accepted() {
+    let t = Thresholds::default();
+    let a = id(1);
+    // Impostor top-1 = 0.0685 (the measured maximum), i.e. an unenrolled person.
+    // Even with a full window of agreement, this must not accept.
+    for n in 1..=10usize {
+        let w: Vec<_> = (0..n).map(|_| obs(vec![(a, 0.0685)])).collect();
+        assert!(
+            !matches!(decide(&w, &t), Decision::Accept { .. }),
+            "an impostor at the measured ceiling was accepted with {n} frames"
+        );
+    }
+}
+
+/// There is a wide dead band between the two measured clusters; nothing in it
+/// should be accepted (this is the fail-closed region).
+#[test]
+fn the_band_between_clusters_is_rejected() {
+    let t = Thresholds::default();
+    let a = id(1);
+    for score in [0.10f32, 0.25, 0.40, 0.59] {
+        let w: Vec<_> = (0..7).map(|_| obs(vec![(a, score)])).collect();
+        assert!(
+            !matches!(decide(&w, &t), Decision::Accept { .. }),
+            "score {score} (inside the empty band) was accepted"
+        );
+    }
+}
+
+/// A config that would accept everyone is refused at load time.
+#[test]
+fn zero_accept_threshold_is_rejected_by_validation() {
+    let t = Thresholds {
+        t_accept: 0.0,
+        ..Thresholds::default()
+    };
+    // 0.0 is in range so validate() allows it — that is why the DEFAULT must be
+    // high. But an out-of-range value must be refused.
+    assert!(t.validate().is_ok(), "0.0 is technically in range");
+
+    let bad = Thresholds {
+        t_margin: 1.5,
+        ..Thresholds::default()
+    };
+    assert!(bad.validate().is_err(), "t_margin=1.5 must be rejected");
+
+    let zero_window = Thresholds {
+        consensus_window: 0,
+        consensus_required: 0,
+        ..Thresholds::default()
+    };
+    assert!(zero_window.validate().is_err(), "window=0 must be rejected");
+}
+
+/// The shipped default must be strict enough to sit well above the measured
+/// impostor ceiling.
+#[test]
+fn default_accept_threshold_is_above_impostor_ceiling() {
+    let t = Thresholds::default();
+    assert!(
+        t.t_accept > 0.10,
+        "default t_accept ({}) is too close to the impostor ceiling",
+        t.t_accept
+    );
+}

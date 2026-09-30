@@ -39,7 +39,12 @@ pub struct Config {
     pub use_deterministic_pipeline: bool,
 
     /// Decision thresholds (see domain::decision::Thresholds).
-    #[arg(long, env = "T_ACCEPT", default_value_t = 0.50)]
+    ///
+    /// T_ACCEPT default is set from measured pipeline scores: genuine pairs
+    /// score >= 0.98, impostors <= 0.07, so 0.60 sits far above any impostor
+    /// while leaving genuine matches comfortable headroom. Re-measure per school
+    /// (plan Section 10) and override here.
+    #[arg(long, env = "T_ACCEPT", default_value_t = 0.60)]
     pub t_accept: f32,
     #[arg(long, env = "T_MARGIN", default_value_t = 0.08)]
     pub t_margin: f32,

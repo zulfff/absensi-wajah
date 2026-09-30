@@ -106,10 +106,15 @@ pub struct QualityThresholds {
 
 impl Default for QualityThresholds {
     fn default() -> Self {
-        // Conservative starting values. Section 10 of the plan requires these to
-        // be re-measured against the school's own dataset during Phase 5.
+        // Measured, not guessed. min_face_px was 112, but on a real 300x375
+        // capture the detected face is ~76px and embeds perfectly (genuine
+        // cosine >= 0.98). Rejecting a valid face makes the system unusable —
+        // the student simply never gets recognised. The face is upscaled to the
+        // 112x112 ArcFace input anyway, so the gate only needs to guarantee
+        // enough pixels to carry identity: 64px is that floor, and everything
+        // below is genuinely too small to trust.
         Self {
-            min_face_px: 112,
+            min_face_px: 64,
             min_laplacian_variance: 60.0,
             min_luminance: 45.0,
             max_luminance: 220.0,
