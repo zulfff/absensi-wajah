@@ -176,6 +176,12 @@
    * target for a phone; controls use this on coarse pointers. */
   --touch-target: 2.75rem; /* 44px */
 
+  /* Mobile chrome heights. Single source of truth: App.vue sizes the bars from
+   * these and the content pane reserves exactly this much, so the two can never
+   * drift and clip content or leave a gap. */
+  --mobile-bar-h: 3.25rem; /* 52px top bar */
+  --mobile-nav-h: 4.5rem; /* 72px bottom nav + home indicator */
+
   /* Safe-area insets for notched devices. Zero on devices without a notch, so
    * they can be added unconditionally to fixed/sticky edges. */
   --safe-top: env(safe-area-inset-top, 0px);

@@ -73,7 +73,7 @@ async function submit(): Promise<void> {
       </form>
 
       <p class="kiosk-hint">
-        Halaman kiosk: <a href="#/kiosk">buka kiosk</a>
+        Halaman kiosk: <a class="kiosk-link" href="#/kiosk">buka kiosk</a>
       </p>
     </div>
   </div>
@@ -138,5 +138,13 @@ async function submit(): Promise<void> {
   font-size: var(--text-xs);
   color: var(--text-tertiary);
   text-align: center;
+}
+
+/* The "buka kiosk" link is inline, so its tap height is just the line box
+ * (~14px). Give it a real touch target without changing the visual rhythm. */
+.kiosk-link {
+  display: inline-block;
+  padding: var(--space-sm) var(--space-xs);
+  margin: calc(-1 * var(--space-sm)) calc(-1 * var(--space-xs));
 }
 </style>

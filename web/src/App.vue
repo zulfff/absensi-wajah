@@ -223,6 +223,11 @@ onMounted(async () => {
 
 .content {
   overflow-y: auto;
+  /* Contain horizontal overflow: any wide child (e.g. a table already inside its
+   * own .table-scroll) must NOT turn the whole pane into a horizontal scroller.
+   * `overflow-y: auto` alone implicitly sets `overflow-x: auto`, which is what
+   * caused a stray horizontal scroll on a narrow phone. */
+  overflow-x: hidden;
   padding: var(--space-xl);
   /* Keep scroll chaining local to the content pane. */
   overscroll-behavior: contain;
@@ -284,9 +289,10 @@ onMounted(async () => {
   .content {
     height: 100%;
     padding: var(--space-md);
-    /* Clear the fixed top bar and bottom nav, plus the home indicator. */
-    padding-top: calc(3.25rem + var(--safe-top));
-    padding-bottom: calc(4.5rem + var(--safe-bottom));
+    /* Clear the fixed top bar and bottom nav, plus the home indicator. The bar
+     * and nav heights are the same tokens that size them below. */
+    padding-top: calc(var(--mobile-bar-h) + var(--safe-top));
+    padding-bottom: calc(var(--mobile-nav-h) + var(--safe-bottom));
     padding-left: calc(var(--space-md) + var(--safe-left));
     padding-right: calc(var(--space-md) + var(--safe-right));
     -webkit-overflow-scrolling: touch;
@@ -298,7 +304,7 @@ onMounted(async () => {
     justify-content: space-between;
     position: fixed;
     inset: 0 0 auto 0;
-    height: calc(3.25rem + var(--safe-top));
+    height: calc(var(--mobile-bar-h) + var(--safe-top));
     padding: var(--safe-top) var(--space-md) 0;
     padding-left: calc(var(--space-md) + var(--safe-left));
     padding-right: calc(var(--space-md) + var(--safe-right));

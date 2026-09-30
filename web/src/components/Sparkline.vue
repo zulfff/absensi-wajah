@@ -36,6 +36,7 @@ const geometry = computed(() => {
     :width="width"
     :height="height"
     :viewBox="`0 0 ${width} ${height}`"
+    :style="{ maxWidth: `${width}px` }"
     role="img"
     :aria-label="label"
     preserveAspectRatio="none"
@@ -61,6 +62,10 @@ const geometry = computed(() => {
 <style scoped>
 .sparkline {
   display: block;
+  /* Fluid: never wider than its column. The `width` attribute is the intrinsic
+   * size; without this the fixed 320px SVG overflowed a 288px phone column and
+   * made the whole content pane scroll sideways. */
+  width: 100%;
   overflow: visible;
 }
 </style>

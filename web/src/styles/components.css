@@ -323,16 +323,28 @@
 /* ---- Table ------------------------------------------------------------ */
 
 /* Tables scroll horizontally rather than squashing columns, so the layout
- * reflows at 320px without clipping content (WCAG 1.4.10). */
+ * reflows at 320px without clipping content (WCAG 1.4.10).
+ *
+ * The wrapper is deliberately a scroll region on BOTH axes. `overflow-x: auto`
+ * alone already makes an element a scroll container vertically too (CSS computes
+ * `overflow-y: visible` to `auto`), so `position: sticky` on the header was
+ * resolving against this wrapper — which had no vertical overflow — and the
+ * header never stuck: it scrolled away and (on mobile) hid behind the fixed top
+ * bar. Bounding the height here makes the wrapper the real vertical scroller,
+ * so the sticky header works exactly as designed. */
 .table-scroll {
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
+  overflow: auto;
+  max-height: min(38rem, calc(100dvh - 14rem));
+  overscroll-behavior: contain;
+  /* Reserve the scrollbar so the sticky column edge does not jump. */
+  scrollbar-gutter: stable;
 }
 
 .table {
   width: 100%;
   min-width: 40rem;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: var(--text-sm);
 }
 
