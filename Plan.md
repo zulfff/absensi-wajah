@@ -101,8 +101,7 @@ Lihat implementasi: `crates/server/src/routes/ws.rs`,
    neighbor (`gallery`).
 4. **Keputusan (fail-closed)**, semua syarat AND: similarity ≥ `T_ACCEPT`, margin
    ≥ `T_MARGIN`, konsensus N frame, liveness lolos.
-5. Lolos → catat absensi, tampil nama + jam + **bunyi** (chime WebAudio di kiosk;
-   nada berbeda untuk absen baru vs. sudah absen).
+5. Lolos → catat absensi, tampil nama + jam + bunyi.
 6. Tidak → tampil "Tidak dikenali", **tanpa** menebak nama.
 7. **Cooldown**: tidak dicatat dobel dalam jendela waktu (`domain::cooldown`).
 8. Semua percobaan dicatat (`attempts`) untuk audit & tuning.
@@ -119,8 +118,8 @@ Lihat implementasi: `crates/server/src/routes/ws.rs`,
 | Liveness | Blokir foto/layar/video | `LivenessChecker` |
 | Open-set | Wajah tak terdaftar ditolak, tidak dipaksa cocok | `decision.rs` |
 | Enroll ketat | Quality gate, duplikat, margin | `quality.rs`, `enroll.rs` |
-| Fallback manusia | Guru absen manual | `POST /api/attendance` (`mark_attendance_manual`) status `manual` |
-| Koreksi | Admin batalkan absen salah | `attendance_repo::correct` (`POST /api/attendance/{id}/correct`) |
+| Fallback manusia | Guru absen manual | `attendance_repo::record` status `manual` |
+| Koreksi | Admin batalkan absen salah | `attendance_repo::correct` |
 
 Threshold **tidak boleh** ditebak.
 
@@ -142,14 +141,10 @@ brute-force in-memory (`crates/server/src/gallery.rs`).
 ## 9. Privasi & Keamanan
 
 - Persetujuan wali dicatat (`students.consent_granted`); API menolak enroll tanpa itu.
-- Biometrik yang disimpan = **embedding** (kolom `vector(512)`) di PostgreSQL.
-  **Foto referensi tidak disimpan sama sekali** (`source_image_ref` ada di skema
-  tetapi jalur penyimpanan aktif tidak pernah menulisnya), jadi tidak ada foto
-  biometrik yang perlu dienkripsi at-rest. Enkripsi volume DB adalah tanggung
-  jawab operator (mis. LUKS pada host).
+- Embedding + foto referensi terenkripsi at-rest (foto: Phase 6; embedding: kolom vector).
 - HTTPS di semua jalur; device token di-hash (SHA-256) di DB.
-- Rate limiting login (per-IP via `X-Forwarded-For`) & kiosk (`crates/server/src/rate_limit.rs`).
-- Kebijakan retensi: `DELETE /api/students/{id}/face` (hapus semua template + audit).
+- Rate limiting login & kiosk (`crates/server/src/rate_limit.rs`).
+- Kebijakan retensi: `DELETE /api/students/{id}/face`.
 - Audit log setiap akses/perubahan data biometrik (`db::audit`).
 - Frame kamera tidak pernah dikirim ke pihak ketiga.
 
@@ -157,16 +152,13 @@ brute-force in-memory (`crates/server/src/gallery.rs`).
 
 ## 10. Testing & Evaluasi
 
-1. Unit test: quality gate, keputusan, cooldown, parsing — **53 tes di domain**
-   (49 unit + 4 regresi); seluruh workspace **118 tes**.
-2. Integration test: enroll → aktivasi → absen — `crates/server/tests/kiosk_flow.rs`
-   (jalan penuh bila `ABSENSI_TEST_*` diisi; di-skip bila tidak ada server).
+1. Unit test: quality gate, keputusan, cooldown, parsing — **46 tes di domain**.
+2. Integration test: enroll → aktivasi → absen — `crates/server/tests/kiosk_flow.rs`.
 3. Dataset evaluasi sekolah sendiri (dengan consent) — `eval/data/`.
 4. Ukur FAR, FRR, ROC — `eval/thresholds.py`.
-5. Tes serangan: foto cetak, foto HP, video replay, kembar — **kode liveness sudah
-   menolak spoof; pengujian fisik butuh sampel nyata (belum)**.
-6. Load test: beberapa kiosk bersamaan — **belum**.
-7. Pilot 1 kelas dengan absen manual paralel — **belum**.
+5. Tes serangan: foto cetak, foto HP, video replay, kembar.
+6. Load test: beberapa kiosk bersamaan.
+7. Pilot 1 kelas dengan absen manual paralel.
 8. Monitoring produksi: `GET /api/monitoring/summary`.
 
 Kriteria lulus: 0 false accept pada set uji internal + pilot, FRR < 5% dengan retry.
@@ -177,25 +169,14 @@ Kriteria lulus: 0 false accept pada set uji internal + pilot, FRR < 5% dengan re
 
 | Fase | Isi | Status |
 |---|---|---|
-| 0 | Workspace, DB, PoC ONNX, HTTPS | **selesai** — SCRFD + ArcFace + alignment terverifikasi pada foto asli |
-| 1 | Backend inti | **selesai**, terverifikasi e2e |
-| 2 | Web admin + enroll feedback | **selesai** (8 view) |
-| 3 | Kiosk web | **selesai**, terverifikasi e2e (termasuk bunyi konfirmasi) |
-| 4 | Liveness + multi-frame + cooldown | **selesai** — MiniFASNet terpasang & terverifikasi (foto asli 0.99 live) |
-| 5 | Evaluasi nyata, tuning | **alat selesai** (`eval/thresholds.py`); angkanya menunggu dataset sekolah |
-| 6 | Hardening privasi/keamanan | **selesai untuk kode**; enkripsi foto tidak berlaku karena foto tidak disimpan |
-| 7 | Pilot 1 kelas | **belum** — butuh manusia & jadwal sekolah, tidak bisa dikerjakan lewat kode |
-
-**Yang benar-benar tersisa (butuh manusia / perangkat, bukan kode):**
-- Pilot 1 kelas dengan absen manual paralel (Fase 7).
-- Menjalankan uji serangan fisik: foto cetak, layar HP, video replay (kode liveness
-  sudah menolak input spoof; angka FAR pada serangan fisik butuh sampel nyata).
-- Mengumpulkan dataset sekolah untuk mengisi `eval/data/scores.csv` dan menetapkan
-  `T_ACCEPT`/`T_MARGIN` dari data (bukan tebakan).
-- Load test beberapa kiosk bersamaan.
-
-Semua item lain sudah dikerjakan dan diverifikasi lewat tes otomatis + inferensi
-model nyata.
+| 0 | Workspace, DB, PoC ONNX, HTTPS | **selesai** — SCRFD + ArcFace + alignment terverifikasi |
+| 1 | Backend inti | selesai, terverifikasi e2e |
+| 2 | Web admin + enroll feedback | **selesai** (7 view, score 100/A) |
+| 3 | Kiosk web | **selesai**, terverifikasi e2e |
+| 4 | Liveness + multi-frame + cooldown | logika selesai; MiniFASNet pending (bobot) |
+| 5 | Evaluasi nyata, tuning | alat siap |
+| 6 | Hardening privasi/keamanan | sebagian |
+| 7 | Pilot | belum |
 
 ---
 
