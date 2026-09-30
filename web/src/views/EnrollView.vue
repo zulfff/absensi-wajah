@@ -406,8 +406,8 @@ async function activate(): Promise<void> {
 .page {
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
-  max-width: 72rem;
+  gap: var(--space-xl);
+  /* width + centring come from the global .page rule */
 }
 
 .head-main {

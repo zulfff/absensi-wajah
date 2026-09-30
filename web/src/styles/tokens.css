@@ -182,6 +182,30 @@
   --mobile-bar-h: 3.25rem; /* 52px top bar */
   --mobile-nav-h: 4.5rem; /* 72px bottom nav + home indicator */
 
+  /* ---- Layout ----------------------------------------------------------- */
+
+  /* Content column. Pages cap their width to this and centre it, so on a wide
+   * desktop the layout sits in a balanced column instead of hugging the left
+   * edge with a large empty gutter on the right. */
+  --content-max: 76rem;
+
+  /* Horizontal padding of a panel's header / toolbar / body. One value for all
+   * three so their left edges line up (a page header with no padding beside a
+   * toolbar that has some is the misalignment that reads as "messy"). */
+  --panel-pad-x: var(--space-lg);
+
+  /* Fade width for the scroll affordance on a horizontally-scrollable table. */
+  --table-fade: 2.5rem;
+
+  /* Max height of a scrollable table region. Bounded so the sticky header has a
+   * real vertical scroller to stick to, and so a long table never runs past the
+   * viewport. Composed from the chrome tokens (+ top bar, + bottom nav, + the
+   * page padding) instead of a magic number, so it adapts to a short phone. */
+  --table-max-h: min(
+    38rem,
+    calc(100dvh - var(--mobile-bar-h) - var(--mobile-nav-h) - var(--space-2xl))
+  );
+
   /* Safe-area insets for notched devices. Zero on devices without a notch, so
    * they can be added unconditionally to fixed/sticky edges. */
   --safe-top: env(safe-area-inset-top, 0px);
@@ -277,5 +301,14 @@
     --shadow-lg: 0 18px 40px oklch(0% 0 0 / 0.5), 0 0 0 1px var(--border-default);
 
     --focus-ring: 0 0 0 3px oklch(62% 0.11 var(--accent-hue) / 0.45);
+  }
+}
+
+/* Desktop has no fixed top bar / bottom nav, so the table region may use the
+ * full viewport height minus the page padding. Kept as an override of the same
+ * token so nothing else needs to know the breakpoint. */
+@media (min-width: 769px) {
+  :root {
+    --table-max-h: min(44rem, calc(100dvh - var(--space-3xl)));
   }
 }

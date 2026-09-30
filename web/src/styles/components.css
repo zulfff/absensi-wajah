@@ -118,15 +118,63 @@
   padding: var(--card-pad);
 }
 
-/* A flush content panel: a hairline rule and a surface tint, no floating
- * rounded card. Used for the primary data region of a page — a card there
- * reads as "everything is a card", the most recognizable generated-UI tell. */
+/* The primary data region of a page: a bordered surface holding a header, an
+ * optional toolbar, and the table. It is deliberately a *panel* (hairline +
+ * surface), not a floating card — "everything is a card" is a generated-UI
+ * tell. One shared horizontal padding (--panel-pad-x) keeps the header,
+ * toolbar and table's first column on the same left edge; a page header at a
+ * different inset than its toolbar is the misalignment that reads as messy. */
 .panel {
   background: var(--surface-raised);
-  border-top: 1px solid var(--border-default);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--card-radius);
+  overflow: hidden;
 }
 
-/* ---- Page header + toolbar layout ------------------------------------- */
+/* Panel header: title on the left, an optional action on the right. */
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--panel-pad-x);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.panel-head h2 {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+}
+
+/* A toolbar of controls (filters, search, date) inside a panel. */
+.panel-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  padding: var(--space-md) var(--panel-pad-x);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* Body region (the table or the empty/loading state) with matching inset. */
+.panel-body {
+  padding: 0;
+}
+
+/* ---- Page shell ------------------------------------------------------- */
+
+/* Every admin page is a centred column capped at --content-max. Declared once
+ * here instead of per view: six copies of `max-width: 72rem` with no centring
+ * left the app pinned to the left edge on a wide monitor, with a huge empty
+ * gutter on the right. Views layer their own flex/grid on top. */
+.page {
+  width: 100%;
+  max-width: var(--content-max);
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
 
 /* Title + actions on one row on desktop; on a phone the actions drop below the
  * title and go full width, because a squeezed button beside a title is where
@@ -334,10 +382,24 @@
  * so the sticky header works exactly as designed. */
 .table-scroll {
   overflow: auto;
-  max-height: min(38rem, calc(100dvh - 14rem));
+  max-height: var(--table-max-h);
   overscroll-behavior: contain;
   /* Reserve the scrollbar so the sticky column edge does not jump. */
   scrollbar-gutter: stable;
+}
+
+/* Edge fade: on a narrow screen the table only scrolls horizontally, which is
+ * not discoverable on its own. A soft gradient at each edge signals "there is
+ * more". Purely decorative, so it never blocks a tap. */
+@media (max-width: 768px) {
+  .table-scroll {
+    background:
+      linear-gradient(to right, var(--surface-raised) 30%, transparent) left /
+        var(--table-fade) 100% no-repeat,
+      linear-gradient(to left, var(--surface-raised) 30%, transparent) right /
+        var(--table-fade) 100% no-repeat;
+    background-attachment: local, local;
+  }
 }
 
 .table {
@@ -367,6 +429,18 @@
   height: var(--row-height);
   border-bottom: 1px solid var(--border-subtle);
   color: var(--text-primary);
+}
+
+/* The first and last columns carry the panel inset, so the table's content
+ * lines up with the panel header and toolbar above it. Without this the header
+ * sits at 24px and the first column at 16px — a 8px step that reads as sloppy. */
+.table th:first-child,
+.table td:first-child {
+  padding-left: var(--panel-pad-x);
+}
+.table th:last-child,
+.table td:last-child {
+  padding-right: var(--panel-pad-x);
 }
 
 .table tbody tr {

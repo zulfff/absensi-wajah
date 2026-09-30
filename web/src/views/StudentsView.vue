@@ -168,7 +168,7 @@ function enrollmentState(id: string): { dot: string; label: string } {
     </form>
 
     <div class="panel">
-      <div class="toolbar">
+      <div class="panel-toolbar">
         <label class="sr-only" for="search">Cari siswa</label>
         <input
           id="search"
@@ -299,8 +299,8 @@ function enrollmentState(id: string): { dot: string; label: string } {
 .page {
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
-  max-width: 72rem;
+  gap: var(--space-xl);
+  /* width + centring come from the global .page rule */
 }
 
 .page-head {
@@ -332,20 +332,12 @@ function enrollmentState(id: string): { dot: string; label: string } {
   gap: var(--space-sm);
 }
 
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-md) var(--space-lg);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
 .search {
   max-width: 22rem;
 }
 
 .rows {
-  padding: var(--space-md) var(--space-lg);
+  padding: var(--space-md) var(--panel-pad-x);
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);

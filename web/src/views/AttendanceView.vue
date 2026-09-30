@@ -87,7 +87,7 @@ function exportCsv(): void {
     </p>
 
     <div class="panel">
-      <div class="toolbar">
+      <div class="panel-toolbar">
         <div class="field date-field">
           <label class="label" for="tanggal">Tanggal</label>
           <input id="tanggal" v-model="date" class="input" type="date" @change="load" />
@@ -172,8 +172,8 @@ function exportCsv(): void {
 .page {
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
-  max-width: 72rem;
+  gap: var(--space-xl);
+  /* width + centring come from the global .page rule */
 }
 
 .page-head {
@@ -215,7 +215,7 @@ function exportCsv(): void {
 }
 
 .rows {
-  padding: var(--space-md) var(--space-lg);
+  padding: var(--space-md) var(--panel-pad-x);
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);

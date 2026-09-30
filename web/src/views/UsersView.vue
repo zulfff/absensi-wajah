@@ -271,8 +271,8 @@ async function remove(u: User): Promise<void> {
 .page {
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
-  max-width: 72rem;
+  gap: var(--space-xl);
+  /* width + centring come from the global .page rule */
 }
 
 .page-head {
@@ -322,7 +322,7 @@ async function remove(u: User): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
-  padding: var(--space-md) 0;
+  padding: var(--space-md) var(--panel-pad-x);
 }
 
 .row-skel {

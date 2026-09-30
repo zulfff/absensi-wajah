@@ -204,8 +204,8 @@ async function remove(d: Device): Promise<void> {
 .page {
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
-  max-width: 72rem;
+  gap: var(--space-xl);
+  /* width + centring come from the global .page rule */
 }
 
 .page-head {
@@ -273,7 +273,7 @@ async function remove(d: Device): Promise<void> {
 }
 
 .rows {
-  padding: var(--space-md) var(--space-lg);
+  padding: var(--space-md) var(--panel-pad-x);
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
@@ -310,9 +310,6 @@ async function remove(d: Device): Promise<void> {
   .page-head > .btn,
   .page-head > a.btn {
     width: 100%;
-  }
-  .toolbar {
-    gap: var(--space-sm);
   }
   .actions {
     flex-direction: column;

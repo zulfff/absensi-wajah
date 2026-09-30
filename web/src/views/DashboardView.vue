@@ -101,26 +101,28 @@ async function load(): Promise<void> {
       </dl>
     </section>
 
-    <!-- Work queue: the table is the product, with proportion context per row. -->
+    <!-- Work queue: the table is the product, wrapped in the same panel the
+         other list screens use so the rhythm is consistent across pages. -->
     <section class="queue" aria-label="Absensi terbaru">
-      <div class="queue-head">
-        <h2>Absensi terbaru</h2>
-        <router-link class="link-quiet" to="/attendance">Lihat semua</router-link>
-      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Absensi terbaru</h2>
+          <router-link class="link-quiet" to="/attendance">Lihat semua</router-link>
+        </div>
 
-      <div v-if="loading" class="queue-body">
-        <div v-for="i in 4" :key="i" class="skeleton row-skel" />
-      </div>
+        <div v-if="loading" class="queue-body">
+          <div v-for="i in 4" :key="i" class="skeleton row-skel" />
+        </div>
 
-      <div v-else-if="recent.length === 0" class="empty">
-        <AppIcon name="calendar-check" :size="26" />
-        <h3>Belum ada absensi hari ini</h3>
-        <p>Check-in muncul setelah siswa menghadap kamera kiosk yang sudah terhubung.</p>
-        <router-link class="btn btn-secondary btn-sm" to="/students">Kelola siswa</router-link>
-      </div>
+        <div v-else-if="recent.length === 0" class="empty">
+          <AppIcon name="calendar-check" :size="26" />
+          <h3>Belum ada absensi hari ini</h3>
+          <p>Check-in muncul setelah siswa menghadap kamera kiosk yang sudah terhubung.</p>
+          <router-link class="btn btn-secondary btn-sm" to="/students">Kelola siswa</router-link>
+        </div>
 
-      <div v-else class="table-scroll">
-        <table class="table">
+        <div v-else class="table-scroll">
+          <table class="table">
           <thead>
             <tr>
               <th scope="col">Siswa</th>
@@ -157,6 +159,7 @@ async function load(): Promise<void> {
             </tr>
           </tbody>
         </table>
+        </div>
       </div>
     </section>
   </div>
@@ -166,8 +169,8 @@ async function load(): Promise<void> {
 .page {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2xl);
-  max-width: 72rem;
+  gap: var(--space-xl);
+  /* width + centring come from the global .page rule */
 }
 
 .page-head {
@@ -271,18 +274,6 @@ async function load(): Promise<void> {
   flex-direction: column;
 }
 
-.queue-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-md);
-  padding-bottom: var(--space-sm);
-}
-
-.queue-head h2 {
-  font-size: var(--text-lg);
-}
-
 .link-quiet {
   font-size: var(--text-sm);
   color: var(--text-secondary);
@@ -304,7 +295,7 @@ async function load(): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
-  padding-top: var(--space-md);
+  padding: var(--space-md) var(--panel-pad-x);
 }
 
 .row-skel {
