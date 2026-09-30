@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import {
   activateStudent,
   createStudent,
+  deactivateStudent,
   deleteFace,
   deleteStudent,
   listStudents,
@@ -14,6 +15,7 @@ import StatusDot from '../components/StatusDot.vue'
 
 const students = ref<StudentListItem[]>([])
 const templateCounts = ref<Record<string, number>>({})
+const activeCounts = ref<Record<string, number>>({})
 const loading = ref(true)
 const error = ref('')
 const query = ref('')
@@ -41,12 +43,24 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    // The list endpoint now carries the template counts, so this is a single
-    // request instead of one per student.
-    const rows = await listStudents()
-    students.value = rows
+    // The list endpoint is paginated (backend caps `limit` at 500). Fetch every
+    // page so search and counts cover the whole roster instead of silently
+    // truncating at the first page.
+    const pageSize = 500
+    const all: StudentListItem[] = []
+    for (let offset = 0; ; offset += pageSize) {
+      const page = await listStudents(pageSize, offset)
+      all.push(...page)
+      if (page.length < pageSize) break
+      // Safety valve: never loop unbounded if the backend misbehaves.
+      if (offset > 100_000) break
+    }
+    students.value = all
     templateCounts.value = Object.fromEntries(
-      rows.map((s) => [s.id, s.active_template_count]),
+      all.map((s) => [s.id, s.template_count]),
+    )
+    activeCounts.value = Object.fromEntries(
+      all.map((s) => [s.id, s.active_template_count]),
     )
   } catch (e) {
     error.value = e instanceof ApiError ? e.message : 'Gagal memuat daftar siswa.'
@@ -89,12 +103,15 @@ async function grantConsent(student: Student): Promise<void> {
 async function toggleActive(student: Student): Promise<void> {
   busyId.value = student.id
   try {
-    if ((templateCounts.value[student.id] ?? 0) > 0) {
+    const active = activeCounts.value[student.id] ?? 0
+    if (active > 0) {
+      await deactivateStudent(student.id)
+    } else {
       await activateStudent(student.id)
     }
     await load()
   } catch (e) {
-    error.value = e instanceof ApiError ? e.message : 'Gagal mengaktifkan.'
+    error.value = e instanceof ApiError ? e.message : 'Gagal mengubah status wajah.'
   } finally {
     busyId.value = null
   }
@@ -127,9 +144,11 @@ async function removeStudent(student: Student): Promise<void> {
 }
 
 function enrollmentState(id: string): { dot: string; label: string } {
-  const n = templateCounts.value[id] ?? 0
-  if (n === 0) return { dot: 'dot-muted', label: 'Belum ada wajah' }
-  return { dot: 'dot-success', label: `${n} template` }
+  const total = templateCounts.value[id] ?? 0
+  const active = activeCounts.value[id] ?? 0
+  if (total === 0) return { dot: 'dot-muted', label: 'Belum ada wajah' }
+  if (active === 0) return { dot: 'dot-warning', label: `${total} template (belum aktif)` }
+  return { dot: 'dot-success', label: `${active} template aktif` }
 }
 </script>
 
@@ -219,9 +238,9 @@ function enrollmentState(id: string): { dot: string; label: string } {
         </thead>
         <tbody>
           <tr v-for="s in filtered" :key="s.id">
-            <td>{{ s.nama }}</td>
-            <td class="tnum muted">{{ s.nis }}</td>
-            <td>
+            <td data-label="Nama">{{ s.nama }}</td>
+            <td data-label="NIS" class="tnum muted">{{ s.nis }}</td>
+            <td data-label="Persetujuan">
               <StatusDot
                 v-if="s.consent_granted"
                 variant="dot-success"
@@ -238,13 +257,13 @@ function enrollmentState(id: string): { dot: string; label: string } {
                 <span>Catat persetujuan</span>
               </button>
             </td>
-            <td>
+            <td data-label="Wajah">
               <StatusDot
                 :variant="enrollmentState(s.id).dot"
                 :label="enrollmentState(s.id).label"
               />
             </td>
-            <td>
+            <td data-label="Status">
               <StatusDot
                 :variant="s.status === 'active' ? 'dot-success' : 'dot-muted'"
                 :label="s.status === 'active' ? 'Aktif' : 'Nonaktif'"
@@ -265,8 +284,8 @@ function enrollmentState(id: string): { dot: string; label: string } {
                 :disabled="busyId === s.id"
                 @click="toggleActive(s)"
               >
-                <AppIcon name="user-check" :size="15" />
-                <span>Aktifkan</span>
+                <AppIcon :name="(activeCounts[s.id] ?? 0) > 0 ? 'x' : 'user-check'" :size="15" />
+                <span>{{ (activeCounts[s.id] ?? 0) > 0 ? 'Nonaktifkan' : 'Aktifkan' }}</span>
               </button>
               <button
                 v-if="(templateCounts[s.id] ?? 0) > 0"

@@ -8,6 +8,7 @@ import Sparkline from '../components/Sparkline.vue'
 
 const summary = ref<MonitoringSummary | null>(null)
 const recent = ref<AttendanceRow[]>([])
+const todayRows = ref<AttendanceRow[]>([])
 const loading = ref(true)
 const error = ref('')
 
@@ -23,6 +24,10 @@ const rejectRatio = computed(() => (totalAttempts.value === 0 ? 0 : rejected.val
 
 // Sparkline of today's check-ins bucketed by hour (06:00-18:00), so the hero
 // shows the arrival wave rather than a static number.
+//
+// Buckets use the admin device's local wall clock. The attendance list is
+// already date-filtered in the school's reporting timezone server-side; on the
+// intended deployment (a school admin on the same local network) the two agree.
 const hourly = computed(() => {
   const buckets = new Array(13).fill(0) // 06..18
   for (const row of todayRows.value) {
@@ -31,8 +36,6 @@ const hourly = computed(() => {
   }
   return buckets
 })
-
-const todayRows = ref<AttendanceRow[]>([])
 
 onMounted(load)
 
@@ -72,7 +75,7 @@ async function load(): Promise<void> {
     <!-- Hero: the one thing that dominates. Flush on canvas, not in a card. -->
     <section class="hero" aria-label="Absensi hari ini">
       <div class="hero-main">
-        <span class="hero-label">Absensi tercatat hari ini</span>
+        <span class="hero-label">Absensi tercatat (24 jam terakhir)</span>
         <div class="hero-figure">
           <span class="hero-value tnum">{{ loading ? '—' : accepted }}</span>
           <span class="hero-unit">check-in</span>
@@ -135,12 +138,12 @@ async function load(): Promise<void> {
           </thead>
           <tbody>
             <tr v-for="row in recent" :key="row.id">
-              <td class="cell-name">
+              <td data-label="Siswa" class="cell-name">
                 <span class="avatar" aria-hidden="true">{{ row.nama.slice(0, 1) }}</span>
                 {{ row.nama }}
               </td>
-              <td class="muted tnum">{{ row.nis }}</td>
-              <td>
+              <td data-label="NIS" class="muted tnum">{{ row.nis }}</td>
+              <td data-label="Kemiripan">
                 <!-- Proportion bar: relative confidence is easier to scan than a
                      bare number, and it makes a weak match visible at a glance. -->
                 <span class="score-cell">
@@ -148,9 +151,9 @@ async function load(): Promise<void> {
                   <span class="tnum score-num">{{ percent(row.similarity) }}</span>
                 </span>
               </td>
-              <td class="num tnum">{{ row.margin.toFixed(2) }}</td>
-              <td class="tnum">{{ formatTime(row.timestamp) }}</td>
-              <td>
+              <td data-label="Margin" class="num tnum">{{ row.margin.toFixed(2) }}</td>
+              <td data-label="Waktu" class="tnum">{{ formatTime(row.timestamp) }}</td>
+              <td data-label="Status">
                 <span class="status-line">
                   <span class="dot" :class="row.status === 'present' ? 'dot-success' : 'dot-warning'" />
                   {{ row.status === 'present' ? 'Hadir' : row.status }}

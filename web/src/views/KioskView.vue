@@ -147,6 +147,10 @@ function connect(): void {
     if (wantsConnection) {
       reconnectAttempts += 1
       const delay = Math.min(3000 * reconnectAttempts, 15000)
+      // Clear any already-pending retry first: onclose can fire more than once
+      // (or after a manual "Coba lagi"), and stacking timers would open several
+      // sockets at once and double the frame rate.
+      if (reconnectTimer) clearTimeout(reconnectTimer)
       reconnectTimer = window.setTimeout(connect, delay)
     }
   }
@@ -172,9 +176,15 @@ function handleMessage(msg: ServerMessage): void {
       handleResult(msg)
       break
     case 'error':
+      // Before the first `ready` this is a real connection/handshake failure.
+      // After that it is a per-frame server error (bad frame, inference
+      // failure): show it as a transient prompt so the user is not left staring
+      // at a stale "hadapkan wajah" message with no feedback.
       if (!connected.value) {
         status.value = 'error'
         errorMsg.value = msg.message
+      } else {
+        prompt.value = msg.message || 'Terjadi kesalahan. Coba lagi.'
       }
       break
   }

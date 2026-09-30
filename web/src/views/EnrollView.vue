@@ -79,7 +79,10 @@ onMounted(async () => {
   await startCamera()
 })
 
-onBeforeUnmount(() => camera.stop())
+onBeforeUnmount(() => {
+  stopAuto()
+  camera.stop()
+})
 
 async function startCamera(): Promise<void> {
   cameraError.value = ''
@@ -140,6 +143,7 @@ function stopAuto(): void {
 }
 
 function reset(): void {
+  stopAuto()
   frames.value = []
   lastFeedback.value = null
   commitResult.value = null

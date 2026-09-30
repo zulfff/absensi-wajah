@@ -50,12 +50,23 @@ async function correct(row: AttendanceRow): Promise<void> {
   }
 }
 
+/** Escape one CSV cell: prevent spreadsheet formula injection AND quote safely.
+ *
+ * A cell beginning with `= + - @` (or a leading tab/CR/LF) is executed as a
+ * formula by Excel/Sheets, so prefix it with a single quote. Then wrap in quotes
+ * and double any embedded quotes (RFC 4180). */
+function csvCell(value: unknown): string {
+  let s = String(value)
+  if (/^[=+\-@\t\r\n]/.test(s)) s = `'${s}`
+  return `"${s.replace(/"/g, '""')}"`
+}
+
 /** Export exactly the rows currently shown, and say so in the button. */
 function exportCsv(): void {
   const header = ['nama', 'nis', 'waktu', 'status', 'kemiripan', 'margin', 'liveness']
   const lines = filtered.value.map((r) =>
     [r.nama, r.nis, r.timestamp, r.status, r.similarity.toFixed(4), r.margin.toFixed(4), r.liveness_score.toFixed(4)]
-      .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+      .map(csvCell)
       .join(','),
   )
   const csv = [header.join(','), ...lines].join('\n')
@@ -138,12 +149,12 @@ function exportCsv(): void {
         </thead>
         <tbody>
           <tr v-for="r in filtered" :key="r.id">
-            <td>{{ r.nama }}</td>
-            <td class="tnum muted">{{ r.nis }}</td>
-            <td class="num tnum">{{ percent(r.similarity) }}</td>
-            <td class="num tnum">{{ percent(r.liveness_score) }}</td>
-            <td class="tnum">{{ formatTime(r.timestamp) }}</td>
-            <td>
+            <td data-label="Siswa">{{ r.nama }}</td>
+            <td data-label="NIS" class="tnum muted">{{ r.nis }}</td>
+            <td data-label="Kemiripan" class="num tnum">{{ percent(r.similarity) }}</td>
+            <td data-label="Liveness" class="num tnum">{{ percent(r.liveness_score) }}</td>
+            <td data-label="Waktu" class="tnum">{{ formatTime(r.timestamp) }}</td>
+            <td data-label="Status">
               <StatusDot
                 :variant="r.status === 'present' ? 'dot-success' : r.status === 'corrected' ? 'dot-error' : 'dot-warning'"
                 :label="r.status === 'present' ? 'Hadir' : r.status === 'corrected' ? 'Dikoreksi' : r.status"

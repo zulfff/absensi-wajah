@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { createDevice, deleteDevice, listDevices, revokeDevice } from '../lib/api'
 import { ApiError, type Device } from '../lib/types'
 import { formatDate } from '../lib/format'
@@ -18,8 +18,12 @@ const saving = ref(false)
 // The freshly minted token, shown once. Never retrievable again.
 const newToken = ref<{ token: string; name: string } | null>(null)
 const copied = ref(false)
+let copiedTimer: number | null = null
 
 onMounted(load)
+onBeforeUnmount(() => {
+  if (copiedTimer) clearTimeout(copiedTimer)
+})
 
 async function load(): Promise<void> {
   loading.value = true
@@ -61,7 +65,8 @@ async function copyToken(): Promise<void> {
   try {
     await navigator.clipboard.writeText(newToken.value.token)
     copied.value = true
-    setTimeout(() => (copied.value = false), 2000)
+    if (copiedTimer) clearTimeout(copiedTimer)
+    copiedTimer = window.setTimeout(() => (copied.value = false), 2000)
   } catch {
     /* clipboard may be blocked; the token is visible for manual copy */
   }
@@ -170,15 +175,15 @@ async function remove(d: Device): Promise<void> {
         </thead>
         <tbody>
           <tr v-for="d in devices" :key="d.id">
-            <td>{{ d.nama }}</td>
-            <td class="muted">{{ d.lokasi ?? '—' }}</td>
-            <td>
+            <td data-label="Nama">{{ d.nama }}</td>
+            <td data-label="Lokasi" class="muted">{{ d.lokasi ?? '—' }}</td>
+            <td data-label="Status">
               <StatusDot
                 :variant="d.revoked ? 'dot-error' : 'dot-success'"
                 :label="d.revoked ? 'Dicabut' : 'Aktif'"
               />
             </td>
-            <td class="muted tnum">{{ d.last_seen ? formatDate(d.last_seen) : 'Belum pernah' }}</td>
+            <td data-label="Terakhir aktif" class="muted tnum">{{ d.last_seen ? formatDate(d.last_seen) : 'Belum pernah' }}</td>
             <td class="actions">
               <button
                 v-if="!d.revoked"

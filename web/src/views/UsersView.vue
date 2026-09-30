@@ -211,8 +211,8 @@ async function remove(u: User): Promise<void> {
           </thead>
           <tbody>
             <tr v-for="u in users" :key="u.id">
-              <td class="cell-name">{{ u.username }}</td>
-              <td>
+              <td data-label="Nama pengguna" class="cell-name">{{ u.username }}</td>
+              <td data-label="Peran">
                 <button
                   class="btn btn-ghost btn-sm role-btn"
                   type="button"
@@ -223,13 +223,13 @@ async function remove(u: User): Promise<void> {
                   {{ u.role === 'admin' ? 'Admin' : 'Guru' }}
                 </button>
               </td>
-              <td>
+              <td data-label="Status">
                 <StatusDot
                   :variant="u.disabled ? 'dot-muted' : 'dot-success'"
                   :label="u.disabled ? 'Nonaktif' : 'Aktif'"
                 />
               </td>
-              <td class="muted tnum">{{ formatDate(u.created_at) }}</td>
+              <td data-label="Dibuat" class="muted tnum">{{ formatDate(u.created_at) }}</td>
               <td class="actions">
                 <template v-if="resettingId === u.id">
                   <input

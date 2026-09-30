@@ -5,11 +5,15 @@
 // automatically on cross-site requests (CSRF surface). A bearer token the app
 // attaches explicitly is the safer choice for this API.
 
+import { ref } from 'vue'
 import { ApiError, type AttendanceRow, type CommitResponse, type Device, type DeviceCreated, type FrameFeedback, type LoginResponse, type MonitoringSummary, type Student, type StudentDetail, type StudentListItem, type User } from './types'
 
 const TOKEN_KEY = 'absensi.token'
 
 let token: string | null = localStorage.getItem(TOKEN_KEY)
+
+/** Reactive mirror of `token`, so templates re-render on login/logout/401. */
+export const authed = ref(token !== null)
 
 /// The signed-in user's role, cached for the session. `null` until fetched.
 let cachedRole: string | null = null
@@ -17,6 +21,7 @@ let cachedRole: string | null = null
 export function setToken(value: string | null): void {
   token = value
   cachedRole = null
+  authed.value = value !== null
   if (value) localStorage.setItem(TOKEN_KEY, value)
   else localStorage.removeItem(TOKEN_KEY)
 }

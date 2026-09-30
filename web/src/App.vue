@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { cachedUserRole, currentRole, isAuthed, setToken } from './lib/api'
+import { authed, cachedUserRole, currentRole, setToken } from './lib/api'
 import AppIcon from './components/AppIcon.vue'
 
 const route = useRoute()
@@ -47,11 +47,25 @@ function logout(): void {
   router.push('/login')
 }
 
+// Keep the role in step with the session: re-fetch whenever the user becomes
+// authenticated (e.g. right after login) or the route changes, so nav reflects
+// the live role rather than a stale cached one.
+async function syncRole(): Promise<void> {
+  if (authed.value) {
+    role.value = await currentRole()
+  } else {
+    role.value = null
+  }
+}
+
+watch(() => authed.value, syncRole)
+watch(() => route.path, () => {
+  if (authed.value) void syncRole()
+})
+
 onMounted(async () => {
   applyTheme()
-  if (isAuthed()) {
-    role.value = await currentRole()
-  }
+  await syncRole()
 })
 </script>
 
@@ -86,7 +100,7 @@ onMounted(async () => {
           <AppIcon :name="theme === 'light' ? 'moon' : 'sun'" :size="16" />
           <span>{{ theme === 'light' ? 'Mode gelap' : 'Mode terang' }}</span>
         </button>
-        <button v-if="isAuthed()" class="btn btn-ghost btn-sm" type="button" @click="logout">
+        <button v-if="authed" class="btn btn-ghost btn-sm" type="button" @click="logout">
           <AppIcon name="log-out" :size="16" />
           <span>Keluar</span>
         </button>
@@ -114,7 +128,7 @@ onMounted(async () => {
         >
           <AppIcon :name="theme === 'light' ? 'moon' : 'sun'" :size="18" />
         </button>
-        <button v-if="isAuthed()" class="icon-btn" type="button" aria-label="Keluar" @click="logout">
+        <button v-if="authed" class="icon-btn" type="button" aria-label="Keluar" @click="logout">
           <AppIcon name="log-out" :size="18" />
         </button>
       </div>
